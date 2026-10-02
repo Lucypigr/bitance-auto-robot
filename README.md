@@ -20,6 +20,8 @@ npm run test:pages
 
 `docs/` 是可由 GitHub Pages 託管的完整靜態網站。`.github/workflows/pages.yml` 在 `main` 分支更新時檢查建置產物和測試。儲存庫管理者須在 GitHub 的 **Settings → Pages → Build and deployment**，選 **Deploy from a branch**，分支選 `main`、資料夾選 `/docs` 並儲存。GitHub 會直接發布已提交的 `docs/`，之後更新 `main/docs` 也會自動重新發布。首次啟用 Pages 需要儲存庫管理權限；GitHub Actions 權杖不能替尚未啟用 Pages 的儲存庫建立網站。靜態版使用相對路徑，可在儲存庫子路徑運作，並從瀏覽器直接向幣安公開 API 與 WebSocket 讀取資料；不會呼叫此儲存庫的 Node API。無法連線時清楚顯示錯誤，示範資料仍可離線使用。真實行情是否可用，取決於訪客所在地與瀏覽器對幣安網域的存取。GitHub Pages 不支援 Node 後端、伺服器 SSE 轉送或自動交易；此版本沒有下單功能。
 
+若 Pages 已選 `main` 的 `/(root)`，儲存庫根目錄的 `index.html` 會自動導向 `docs/`。仍建議設定 `/docs`，讓正式網址直接顯示平台首頁。若網站回傳 404，請確認 Pages 設定已儲存並檢查發布狀態；程式碼推送成功本身不代表 Pages 已啟用。
+
 先使用明確標示的「合成示範資料」操作，再於資料來源選擇「幣安公開行情」。示範序列可重現，不代表真實幣價或可投資績效。UTC 日期的結束日不包含當日，且只採已收盤 K 線。
 
 ## 已提供的功能
