@@ -18,7 +18,7 @@ npm run build:pages
 npm run test:pages
 ```
 
-`docs/` 是可由 GitHub Pages 託管的完整靜態網站。`.github/workflows/pages.yml` 在 `main` 分支更新時重新建置、執行測試並部署。Pages 啟用來源為 GitHub Actions；正式頁面以該工作流程的 deployment URL 為準。靜態版使用相對路徑，可在儲存庫子路徑運作，並從瀏覽器直接向幣安公開 API 與 WebSocket 讀取資料；不會呼叫此儲存庫的 Node API。無法連線時清楚顯示錯誤，示範資料仍可離線使用。真實行情是否可用，取決於訪客所在地與瀏覽器對幣安網域的存取。GitHub Pages 不支援 Node 後端、伺服器 SSE 轉送或自動交易；此版本沒有下單功能。
+`docs/` 是可由 GitHub Pages 託管的完整靜態網站。`.github/workflows/pages.yml` 在 `main` 分支更新時檢查建置產物和測試。儲存庫管理者須在 GitHub 的 **Settings → Pages → Build and deployment**，選 **Deploy from a branch**，分支選 `main`、資料夾選 `/docs` 並儲存。GitHub 會直接發布已提交的 `docs/`，之後更新 `main/docs` 也會自動重新發布。首次啟用 Pages 需要儲存庫管理權限；GitHub Actions 權杖不能替尚未啟用 Pages 的儲存庫建立網站。靜態版使用相對路徑，可在儲存庫子路徑運作，並從瀏覽器直接向幣安公開 API 與 WebSocket 讀取資料；不會呼叫此儲存庫的 Node API。無法連線時清楚顯示錯誤，示範資料仍可離線使用。真實行情是否可用，取決於訪客所在地與瀏覽器對幣安網域的存取。GitHub Pages 不支援 Node 後端、伺服器 SSE 轉送或自動交易；此版本沒有下單功能。
 
 先使用明確標示的「合成示範資料」操作，再於資料來源選擇「幣安公開行情」。示範序列可重現，不代表真實幣價或可投資績效。UTC 日期的結束日不包含當日，且只採已收盤 K 線。
 
