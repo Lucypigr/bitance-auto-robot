@@ -1,0 +1,65 @@
+import { test, expect } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
+test('spot demo produces detailed report, charts, downloads and interactive sections', async ({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('#progress')).toContainText('已完成',{timeout:60000});
+  await expect(page.locator('#ranking-body tr')).toHaveCount(24);
+  await expect(page.locator('#equity-chart svg')).toBeVisible();
+  await expect(page.locator('#report-state')).toContainText('合成示範');
+  await page.locator('[data-tab="trades"]').click();
+  await expect(page.locator('#detail-content tbody tr').first()).toBeVisible();
+  const download=page.waitForEvent('download');await page.locator('#export-trades').click();
+  expect((await download).suggestedFilename()).toMatch(/trades.csv/);
+  await page.locator('[data-tab="walk"]').click();await expect(page.locator('.fold')).toHaveCount(3);
+  await page.locator('[data-tab="indicators"]').click();await expect(page.locator('.snapshot-item')).toHaveCount(37);
+  await page.locator('[data-range="full"]').click();await expect(page.locator('#chart-caption')).toContainText('完整期間');
+  await page.screenshot({path:'test-results/desktop.png',fullPage:true});
+  expect(errors).toEqual([]);
+});
+test('futures, multi-asset and custom strategy run through the actual worker',async({page})=>{
+  await page.goto('/');await expect(page.locator('#progress')).toContainText('已完成',{timeout:60000});
+  await page.locator('[data-market="futures"]').click();
+  await expect(page.locator('#futures-fields')).toBeVisible();
+  await page.locator('#symbol-search').fill('ETHUSDT');await page.locator('#symbol-search').dispatchEvent('change');
+  await expect(page.locator('.symbol-chip')).toHaveCount(2);
+  await page.locator('#strategy').selectOption('custom');
+  await expect(page.locator('.rule-group')).toHaveCount(4);
+  await page.locator('#run-button').click();
+  await expect(page.locator('#report-state')).toContainText('2× 合約',{timeout:60000});
+  await expect(page.locator('#ranking-body tr')).toHaveCount(1);
+  await page.locator('[data-tab="trades"]').click();
+  await expect(page.locator('#detail-content')).toContainText('資金費率');
+  const dl=page.waitForEvent('download');await page.locator('#export-report').click();const report=await dl;expect(report.suggestedFilename()).toMatch(/report/);
+  const replay=JSON.parse(execFileSync(process.execPath,['scripts/replay.js',await report.path()],{encoding:'utf8'}));expect(replay.matchesSavedResult).toBe(true);
+  await page.locator('#save-config').click();
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('quantlab-config-v1')).market)).toBe('futures');
+});
+test('market search and indicator catalogue are functional',async({page})=>{
+  await page.goto('/');await expect(page.locator('#progress')).toContainText('已完成',{timeout:60000});
+  await page.locator('[data-view="markets"]').click();await page.locator('#market-search').fill('ETH');
+  await expect(page.locator('#markets-body tr')).toHaveCount(1);
+  await page.locator('[data-add-symbol="ETHUSDT"]').click();
+  await page.locator('[data-view="workbench"]').click();await expect(page.locator('.symbol-chip')).toHaveCount(2);
+  await page.locator('[data-view="strategies"]').click();await expect(page.locator('.strategy-card')).toHaveCount(10);
+  await page.locator('[data-use-strategy="macd"]').click();await expect(page.locator('#strategy')).toHaveValue('macd');
+});
+test('live API failure stays explicit and never relabels synthetic quotes as real',async({page})=>{
+  await page.goto('/');await expect(page.locator('#progress')).toContainText('已完成',{timeout:60000});
+  await page.route('**/api/markets?market=spot&demo=0',route=>route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'測試：幣安網路未開放'})}));
+  await page.locator('#source').selectOption('live');
+  await expect(page.locator('#notice')).toContainText('幣安網路未開放');
+  await expect(page.locator('#connection-badge')).toContainText('失敗');
+  await expect(page.locator('.ticker')).toHaveCount(0);
+  await expect(page.locator('#report-state')).toContainText('示範結果');
+});
+test('mobile layout fits screen and custom indicators remain operable',async({page})=>{
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('/');await expect(page.locator('#progress')).toContainText('已完成',{timeout:60000});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
+  await page.locator('#strategy').selectOption('custom');
+  await page.locator('.add-rule').first().click();
+  await expect(page.locator('[data-group="entryLong"] .rule-row')).toHaveCount(2);
+  await page.locator('[data-group="entryLong"] .remove-rule').last().click();
+  await page.screenshot({path:'test-results/mobile.png',fullPage:true});
+});

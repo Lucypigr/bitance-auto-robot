@@ -1,0 +1,355 @@
+import { strategyCatalog } from './src/strategies.js';
+import { indicatorCatalog } from './src/indicators.js';
+import { intervals, validateOptions } from './src/backtest.js';
+import { equityChart, drawdownChart } from './charts.js';
+const $ = selector => document.querySelector(selector);
+const $$ = selector => [...document.querySelectorAll(selector)];
+const staticMode = document.querySelector('meta[name="quantlab-mode"]')?.content === 'static';
+const staticData = staticMode ? await Promise.all([import('./src/binance.js'), import('./src/demo.js')]) : null;
+const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const num = (v, digits = 2) => v === null || v === undefined || !Number.isFinite(v) ? '—' : new Intl.NumberFormat('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(v);
+const pct = v => `${v > 0 ? '+' : ''}${num(v)}%`;
+const color = v => v > 0 ? 'positive' : v < 0 ? 'negative' : '';
+const date = time => new Date(time).toISOString().slice(0, 10);
+const datetime = time => new Date(time).toISOString().slice(0, 16).replace('T', ' ');
+const compact = v => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(v);
+const price = v => num(v, v < 1 ? 6 : v < 100 ? 3 : 2);
+const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT' };
+let toastTimer, pollTimer, reconnectTimer, websocketTime = 0, marketPaint = 0;
+function toast(message) { $('#toast').textContent = message; $('#toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 3000); }
+function notice(message = '') { $('#notice').textContent = message; $('#notice').classList.toggle('hidden', !message); }
+function view(name) {
+  state.view = name;
+  $$('.view').forEach(el => el.classList.toggle('hidden', el.id !== `view-${name}`));
+  $$('[data-view]').forEach(el => el.classList.toggle('active', el.dataset.view === name));
+  $('#breadcrumb-title').textContent = { workbench: '回測工作台', markets: '市場總覽', strategies: '策略與指標', method: '回測方法' }[name];
+  if (name === 'markets') renderMarkets();
+  history.replaceState(null, '', `#${name}`);
+}
+function markDirty() { if (state.result) $('#report-state').textContent = `${state.result.metadata.sources[0].source === 'synthetic' ? '示範' : '幣安'}結果 · 設定已變更，請重新回測`; }
+function renderSymbols() {
+  $('#selected-symbols').innerHTML = state.symbols.map(s => `<span class="symbol-chip">${esc(s)}<button type="button" data-remove-symbol="${esc(s)}" aria-label="移除 ${esc(s)}">×</button></span>`).join('');
+  $$('.quote-label').forEach(el => { el.textContent = state.quote; });
+}
+function addSymbol(symbol) {
+  if (state.running) return;
+  const match = state.markets.find(m => m.symbol === symbol);
+  if (!match) return toast('請先載入行情並選擇清單中的交易對');
+  if (state.symbols.includes(symbol)) return;
+  if (state.symbols.length >= 6) return toast('每次最多 6 組交易對');
+  if (state.symbols.length && match.quote !== state.quote) return toast('投資組合需使用相同報價幣；請先移除既有交易對');
+  state.quote = match.quote; state.symbols.push(symbol); renderSymbols(); markDirty();
+}
+function renderTickers() {
+  const preferred = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'].map(s => state.markets.find(m => m.symbol === s)).filter(Boolean);
+  $('#market-strip').innerHTML = preferred.length ? preferred.map(m => `<div class="ticker"><span class="coin ${esc(m.base.toLowerCase())}">${({ BTC: '₿', ETH: 'Ξ', SOL: '◎', BNB: '◇' })[m.base] ?? esc(m.base[0])}</span><div><div class="ticker-name">${esc(m.base)}<small>/ ${esc(m.quote)}</small></div><div class="ticker-price">${price(m.price)}</div></div><div class="ticker-change ${color(m.change)}"><span>${m.change >= 0 ? '↗' : '↘'} ${pct(m.change)}</span></div></div>`).join('') : '<div class="empty-state">等待行情資料；示範模式可離線驗證平台功能。</div>';
+}
+function renderMarkets() {
+  const query = $('#market-search').value.trim().toUpperCase(), quote = $('#quote-filter').value;
+  const list = state.markets.filter(m => (!query || m.symbol.includes(query)) && (!quote || m.quote === quote));
+  const size = 40, pages = Math.max(1, Math.ceil(list.length / size)); state.marketPage = Math.min(state.marketPage, pages - 1);
+  $('#market-count').textContent = `${state.source === 'demo' ? '合成示範' : 'Binance'} · ${state.market === 'spot' ? '現貨' : 'USDⓈ-M 永續合約'} · ${list.length} 個交易對${state.source === 'demo' ? '（示範清單）' : ''}`;
+  $('#markets-body').innerHTML = list.slice(state.marketPage * size, (state.marketPage + 1) * size).map(m => `<tr><td><strong>${esc(m.base)}</strong> <span class="muted">/ ${esc(m.quote)}</span></td><td class="mono">${price(m.price)}</td><td class="mono ${color(m.change)}">${pct(m.change)}</td><td class="mono">${price(m.high)}</td><td class="mono">${price(m.low)}</td><td class="mono">${compact(m.volume)}</td><td><button class="add-market" data-add-symbol="${esc(m.symbol)}">＋ 加入回測</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty-state">沒有符合條件的交易對</td></tr>';
+  $('#market-pagination').innerHTML = `<span>${state.marketPage + 1} / ${pages}</span><button data-market-page="-1" ${state.marketPage === 0 ? 'disabled' : ''}>←</button><button data-market-page="1" ${state.marketPage >= pages - 1 ? 'disabled' : ''}>→</button>`;
+}
+function setBadge(text, type = '') { $('#connection-badge').className = `status-badge ${type}`; $('#connection-badge').innerHTML = `<i></i>${esc(text)}`; }
+function setSourceBanner() {
+  const demo = state.source === 'demo';
+  $('#data-banner').classList.toggle('connected', !demo);
+  $('#data-banner').innerHTML = demo ? '<span>◉</span><div><strong>目前使用可重現的合成示範資料</strong><span>非幣安實際行情，績效僅用於操作與模型驗證。</span></div><button id="connect-live">連接幣安行情 →</button>' : '<span>◉</span><div><strong>幣安公開市場資料</strong><span>WebSocket 即時報價；連線中斷時每 15 秒更新。歷史回測只採已收盤 K 線。</span></div><button id="use-demo">使用示範資料</button>';
+}
+async function refreshMarkets(quiet = false) {
+  const generation = ++state.generation;
+  const source = state.source, market = state.market;
+  try {
+    let data;
+    if (staticMode) data = source === 'demo'
+      ? { markets: staticData[1].demoMarkets(), source: 'synthetic', market, fetchedAt: new Date().toISOString() }
+      : await staticData[0].getMarkets(market);
+    else {
+      const response = await fetch(`/api/markets?market=${market}&demo=${source === 'demo' ? 1 : 0}`);
+      data = await response.json(); if (!response.ok) throw new Error(data.error);
+    }
+    if (generation !== state.generation) return;
+    state.markets = data.markets;
+    $('#symbol-options').innerHTML = state.markets.map(m => `<option value="${esc(m.symbol)}">${esc(m.base)} / ${esc(m.quote)}</option>`).join('');
+    const prior = $('#quote-filter').value;
+    $('#quote-filter').innerHTML = '<option value="">全部報價幣</option>' + [...new Set(state.markets.map(m => m.quote))].sort().map(q => `<option value="${esc(q)}">${esc(q)}</option>`).join('');
+    $('#quote-filter').value = [...$('#quote-filter').options].some(o => o.value === prior) ? prior : '';
+    renderTickers(); renderMarkets();
+    if (source === 'demo') setBadge('示範資料', 'demo');
+    else { setBadge(state.ws?.readyState === EventSource.OPEN && Date.now() - websocketTime < 30000 ? '即時串流連線中' : 'REST 行情 · 15 秒'); if (!state.ws) connectWebSocket(); }
+    if (!quiet) notice();
+  } catch (e) {
+    if (generation !== state.generation) return;
+    setBadge('行情連線失敗', 'error');
+    if (!quiet) notice(e.message || '無法載入行情');
+  }
+}
+function connectWebSocket() {
+  if (state.source !== 'live') return;
+  const ws = staticMode
+    ? new WebSocket(state.market === 'spot' ? 'wss://data-stream.binance.vision/ws/!miniTicker@arr' : 'wss://fstream.binance.com/ws/!miniTicker@arr')
+    : new EventSource(`/api/stream?market=${state.market}`);
+  state.ws = ws;
+  ws.onmessage = event => {
+    if (state.ws !== ws) return;
+    try {
+      const rows = JSON.parse(event.data); if (!Array.isArray(rows)) return;
+      const updates = new Map(rows.map(r => [r.s, r]));
+      for (const m of state.markets) { const r = updates.get(m.symbol); if (r) { m.price = Number(r.c); m.high = Number(r.h); m.low = Number(r.l); m.volume = Number(r.q); m.change = Number(r.o) ? (Number(r.c) / Number(r.o) - 1) * 100 : 0; } }
+      websocketTime = Date.now(); setBadge('即時串流連線中');
+      if (Date.now() - marketPaint > 1000) { renderTickers(); if (state.view === 'markets') renderMarkets(); marketPaint = Date.now(); }
+    } catch { /* Ignore invalid external stream frames; REST remains available. */ }
+  };
+  if (!staticMode) ws.addEventListener('status', event => {
+    try { if (JSON.parse(event.data).state === 'fallback') { websocketTime = 0; setBadge('REST 行情 · 15 秒'); } } catch {}
+  });
+  ws.onerror = () => {
+    if (state.ws !== ws) return;
+    state.ws = null; websocketTime = 0; ws.close(); setBadge('REST 行情 · 15 秒');
+    clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connectWebSocket, 15000);
+  };
+  if (staticMode) ws.onclose = ws.onerror;
+}
+async function sourceChanged() {
+  if (state.ws) { const old = state.ws; state.ws = null; old.close(); }
+  clearTimeout(reconnectTimer); clearInterval(pollTimer);
+  state.source = $('#source').value; state.markets = []; renderTickers(); renderMarkets(); setSourceBanner(); markDirty();
+  setBadge(state.source === 'demo' ? '示範資料' : '正在連接幣安…', state.source === 'demo' ? 'demo' : '');
+  await refreshMarkets();
+  if (state.source === 'live') pollTimer = setInterval(() => { if (!document.hidden) refreshMarkets(true); }, 15000);
+}
+async function switchMarket(market) {
+  if (state.running) return;
+  state.market = market;
+  $$('[data-market]').forEach(b => b.classList.toggle('active', b.dataset.market === market));
+  $('#futures-fields').classList.toggle('hidden', market !== 'futures');
+  [...$('#interval').options].forEach(o => { o.disabled = market === 'futures' && intervals[o.value] > 3600000; });
+  if (market === 'futures' && intervals[$('#interval').value] > 3600000) $('#interval').value = '1h';
+  $('#fee').value = market === 'futures' ? '.04' : '.10';
+  await sourceChanged();
+}
+const ruleOptions = Object.entries(indicatorCatalog).map(([key, name]) => `<option value="${key}">${esc(name)}</option>`).join('');
+function ruleRow(rule = { left: 'rsi', op: '<', right: 30 }) {
+  const row = document.createElement('div'); row.className = 'rule-row';
+  row.innerHTML = `<select aria-label="技術指標" class="rule-left">${ruleOptions}</select><select aria-label="比較方式" class="rule-op"><option value=">">大於</option><option value="<">小於</option><option value="crossAbove">上穿</option><option value="crossBelow">下穿</option></select><input aria-label="比較數字或指標" class="rule-right" list="indicator-keys"><button type="button" class="remove-rule" aria-label="移除規則">×</button>`;
+  row.querySelector('.rule-left').value = rule.left; row.querySelector('.rule-op').value = rule.op; row.querySelector('.rule-right').value = rule.right;
+  return row;
+}
+function initRules(saved) {
+  const defaults = { entryLong: [{ left: 'rsi', op: '<', right: 30 }], exitLong: [{ left: 'rsi', op: '>', right: 55 }], entryShort: [{ left: 'rsi', op: '>', right: 70 }], exitShort: [{ left: 'rsi', op: '<', right: 45 }] };
+  const labels = { entryLong: '做多進場', exitLong: '做多出場', entryShort: '做空進場（合約）', exitShort: '做空出場（合約）' };
+  $('#rule-groups').innerHTML = Object.entries(labels).map(([key, label]) => `<div class="rule-group" data-group="${key}"><h4>${label}</h4><div class="rules-list"></div><button type="button" class="add-rule">＋ 加入條件</button></div>`).join('') + `<datalist id="indicator-keys">${Object.entries(indicatorCatalog).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</datalist>`;
+  for (const [key, list] of Object.entries(saved ?? defaults)) for (const rule of list) $(`[data-group="${key}"] .rules-list`).append(ruleRow(rule));
+}
+function readRules() {
+  return Object.fromEntries($$('.rule-group').map(group => [group.dataset.group, [...group.querySelectorAll('.rule-row')].map(row => {
+    const raw = row.querySelector('.rule-right').value.trim();
+    return { left: row.querySelector('.rule-left').value, op: row.querySelector('.rule-op').value, right: raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : raw };
+  })]));
+}
+function strategyChanged() {
+  const id = $('#strategy').value;
+  $('#custom-builder').classList.toggle('hidden', id !== 'custom');
+  $('#strategy-hint').textContent = id === 'auto' ? '以訓練期結果選出策略，再驗證樣本外表現。' : id === 'custom' ? '用指標與數值建立自己的策略，不需撰寫程式。' : strategyCatalog.find(s => s.id === id).description;
+  markDirty();
+}
+function readOptions() {
+  const o = { market: state.market, interval: $('#interval').value, capital: Number($('#capital').value), strategy: $('#strategy').value,
+    optimize: $('#optimize').checked, leverage: state.market === 'spot' ? 1 : Number($('#leverage').value), maintenance: Number($('#maintenance').value) / 100,
+    startTime: Date.parse($('#start-date').value + 'T00:00:00Z'), endTime: Date.parse($('#end-date').value + 'T00:00:00Z'), customRules: readRules() };
+  for (const key of ['fee', 'slippage', 'allocation', 'stopLoss', 'takeProfit', 'trailingStop']) o[key] = Number($(`#${key}`).value) / 100;
+  validateOptions(o);
+  if (!state.symbols.length) throw new Error('請至少選擇一個交易對');
+  if ((o.endTime - o.startTime) / intervals[o.interval] * state.symbols.length > 100000) throw new Error('投資組合合計最多 100,000 根 K 線，請縮短期間或減少交易對');
+  if (!Number.isFinite(o.startTime) || !Number.isFinite(o.endTime) || o.startTime >= o.endTime || (o.endTime - o.startTime) / intervals[o.interval] > 50000) throw new Error('日期範圍無效，最多可回測 50,000 根 K 線');
+  return o;
+}
+function busy(active) {
+  state.running = active; document.body.classList.toggle('busy', active);
+  $$('#config-form input, #config-form select, #config-form button').forEach(el => { el.disabled = active; });
+  $('#cancel-button').disabled = false; $('#cancel-button').classList.toggle('hidden', !active);
+  $('#run-button').innerHTML = active ? '<span>◌</span> 正在分析策略… <span>↗</span>' : '<span>▷</span> 執行策略回測 <span>↗</span>';
+}
+function progress(value, message) { $('#progress>span').textContent = message; $('#progress i').style.width = `${value}%`; }
+async function runBacktest() {
+  if (state.running || !$('#config-form').reportValidity()) return;
+  let options;
+  try { options = readOptions(); } catch (e) { return notice(e.message); }
+  notice(); busy(true); progress(2, '準備歷史行情與暖機資料…');
+  const controller = new AbortController(); state.abort = controller;
+  const source = state.source, symbols = [...state.symbols];
+  try {
+    const datasets = [];
+    for (const [i, symbol] of symbols.entries()) {
+      progress(3 + 12 * i / symbols.length, `下載 ${symbol}，含 220 根指標暖機…`);
+      const params = new URLSearchParams({ market: options.market, symbol, interval: options.interval, start: options.startTime, end: options.endTime, demo: source === 'demo' ? '1' : '0' });
+      let data;
+      if (staticMode) data = source === 'demo'
+        ? staticData[1].demoHistory(symbol, options.interval, options.startTime, options.endTime, options.market)
+        : await staticData[0].getHistory({ market: options.market, symbol, interval: options.interval, startTime: options.startTime, endTime: options.endTime }, controller.signal);
+      else {
+        const res = await fetch(`/api/history?${params}`, { signal: controller.signal });
+        data = await res.json(); if (!res.ok) throw new Error(data.error);
+      }
+      if (controller.signal.aborted) throw new DOMException('已停止', 'AbortError');
+      datasets.push(data);
+    }
+    if (new Set(datasets.map(d => d.quote)).size !== 1) throw new Error('多幣種回測必須使用同一報價幣');
+    state.quote = datasets[0].quote; renderSymbols();
+    const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); state.worker = worker;
+    const result = await new Promise((resolve, reject) => {
+      state.rejectWorker = reject;
+      worker.onmessage = ({ data }) => {
+        if (data.type === 'progress') progress(15 + data.progress * .85, data.message);
+        if (data.type === 'result') resolve(data.result);
+        if (data.type === 'error') reject(new Error(data.error));
+      };
+      worker.onerror = event => reject(new Error(event.message || '回測工作程序失敗'));
+      worker.postMessage({ datasets, options });
+    });
+    result.metadata.quote = state.quote;
+    state.datasets = datasets; state.result = result; state.range = 'test'; state.tradePage = 0;
+    renderResults(); progress(100, `${result.metadata.bars.toLocaleString()} 根 K 線 · ${result.metadata.candidates} 組候選 · 已完成`);
+    if (result.metadata.commonPeriodTrimmed) notice('部分交易對歷史不足，回測已使用各交易對共同可用、完成暖機後的期間。請以圖表日期為準。');
+    toast('回測完成，已產生樣本外與滾動驗證報告');
+  } catch (e) {
+    if (e.name === 'AbortError') progress(0, '本次回測已停止');
+    else { notice(e.message); progress(0, '回測未完成，請檢查上述訊息'); }
+  } finally {
+    state.worker?.terminate(); state.worker = null; state.rejectWorker = null; state.abort = null; busy(false);
+  }
+}
+function currentReport() { return state.result?.[state.range]; }
+function renderResults() {
+  if (!state.result) return;
+  const result = state.result, report = currentReport(), s = report.stats, source = result.metadata.sources[0].source;
+  const benchmarkReturn = (report.benchmark.at(-1).value / result.options.capital - 1) * 100;
+  $('#report-state').textContent = `${source === 'synthetic' ? '合成示範結果' : '幣安資料'} · ${result.options.market === 'spot' ? '現貨' : `${result.options.leverage}× 合約`} · ${result.metadata.symbols.join(' / ')}`;
+  const cards = [
+    ['淨報酬率', pct(s.totalReturn), color(s.totalReturn), `買入持有 <strong>${pct(benchmarkReturn)}</strong>`, '↗'],
+    ['最大回撤', `${num(s.maxDrawdown)}%`, 'negative', `水下期間最長 <strong>${num(s.drawdownDays, 1)} 天</strong>`, '↘'],
+    ['Sharpe 比率', num(s.sharpe), '', 'UTC 日報酬 · 無風險利率 0', '◈'],
+    ['交易勝率', `${num(s.winRate, 1)}%`, '', `<strong>${s.wins}</strong> 勝 / <strong>${s.losses}</strong> 負 · 共 ${s.trades} 筆`, '◎'],
+  ];
+  $('#summary').innerHTML = cards.map(([label, value, cls, sub, icon]) => `<div class="stat-card"><div class="stat-label">${label}<span>${icon}</span></div><div class="stat-value ${cls}">${value}</div><div class="stat-sub">${sub}</div></div>`).join('');
+  $('#chart-caption').textContent = `${result.best.name} · ${source === 'synthetic' ? '合成示範' : 'Binance'} · ${state.range === 'test' ? '最後 30% 保留資料，獨立起始資金' : '完整期間含訓練資料，非純樣本外績效'}`;
+  $('#chart-unit').textContent = result.metadata.quote;
+  $('#period-label').textContent = `${date(report.equity[0].time)} — ${date(report.equity.at(-1).time)} UTC`;
+  $('#drawdown-max').textContent = `${num(s.maxDrawdown)}%`;
+  $('#detail-range-label').textContent = state.range === 'test' ? '樣本外期間' : '完整期間';
+  $$('[data-range]').forEach(b => b.classList.toggle('active', b.dataset.range === state.range));
+  equityChart($('#equity-chart'), report); drawdownChart($('#drawdown-chart'), report.equity);
+  $('#candidate-count').textContent = result.ranking.length;
+  $('#ranking-body').innerHTML = result.ranking.map((r, i) => `<tr><td><span class="rank-number ${i === 0 ? 'winner' : ''}">${String(i + 1).padStart(2, '0')}</span><span class="strategy-name">${esc(r.strategy.name)}</span>${i === 0 ? '<span class="best-pill">訓練首選</span>' : ''}<span class="strategy-sub">${esc(r.strategy.indicators)}${Object.keys(r.strategy.params).length ? ` · ${esc(Object.entries(r.strategy.params).map(([k, v]) => `${k}=${v}`).join(' '))}` : ''}</span></td><td class="mono ${color(r.train.totalReturn)}">${pct(r.train.totalReturn)}</td><td class="mono">${num(r.train.sharpe)}</td><td class="mono ${color(r.test.totalReturn)}">${pct(r.test.totalReturn)}</td><td class="mono negative">${num(r.test.maxDrawdown)}%</td><td class="mono">${r.test.trades}</td></tr>`).join('');
+  const top = result.ranking[0];
+  $('#ranking-insight').innerHTML = `✧ <strong>${esc(result.best.name)}</strong> 在訓練期排名第一。${top.train.trades < 3 || top.train.sharpe === null ? '訓練交易數或日數不足，排名證據不足。' : ''}其樣本外報酬為 <strong>${pct(top.test.totalReturn)}</strong>，${top.test.totalReturn > 0 ? '仍須檢視回撤與跨期穩定性。' : '尚未顯示穩定的樣本外獲利優勢。'}${source === 'synthetic' ? ' 本次為合成資料，不能作為投資依據。' : ''}`;
+  renderDetail();
+}
+const reasons = { signal: '策略出場', stop: '停損 / 移動停損', target: '停利', end: '期末平倉', liquidation: '估計清算' };
+function renderDetail() {
+  if (!state.result) { $('#detail-content').innerHTML = '<div class="empty-state">完成回測後查看詳細報告</div>'; return; }
+  const report = currentReport(), s = report.stats, r = state.result;
+  $$('.detail-tabs button').forEach(b => { b.classList.toggle('active', b.dataset.tab === state.tab); b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)); });
+  if (state.tab === 'stats') {
+    const data = [['期末淨值', num(s.endValue), r.metadata.quote], ['淨利', num(s.netProfit), '已扣成本與資金費率'], ['年化報酬 CAGR', s.cagr === null ? '—' : `${num(s.cagr)}%`, '不足 30 天不年化'], ['Sortino 比率', num(s.sortino), '日頻下行風險'], ['Calmar 比率', num(s.calmar), 'CAGR / 最大回撤'], ['獲利因子', s.noLosses ? '無虧損樣本' : num(s.profitFactor), '獲利總額 / 虧損總額'], ['每筆期望值', num(s.expectancy), r.metadata.quote], ['平均盈利', num(s.avgWin), r.metadata.quote], ['平均虧損', num(s.avgLoss), r.metadata.quote], ['最長連敗', String(s.maxLossStreak), '依平倉順序'], ['總手續費', num(s.fees), '雙邊成交收費'], ['滑價成本', num(s.slippageCost), '已含於成交價，未重複扣除'], ['淨資金費率支出', num(s.funding), '負數代表收取'], ['平均持倉', `${num(s.avgHoldingHours, 1)} h`, '小時'], ['市場曝險時間', `${num(s.exposure, 1)}%`, `${s.liquidations} 次估計清算`]];
+    const assets = `<div class="table-scroll"><table><thead><tr><th>獨立資金帳戶</th><th>淨報酬</th><th>最大回撤</th><th>Sharpe</th><th>交易數</th><th>手續費</th><th>淨資金費率支出</th></tr></thead><tbody>${report.assets.map(a => `<tr><td>${esc(a.symbol)}</td><td class="mono ${color(a.totalReturn)}">${pct(a.totalReturn)}</td><td class="mono negative">${num(a.maxDrawdown)}%</td><td class="mono">${num(a.sharpe)}</td><td>${a.trades}</td><td class="mono">${num(a.fees)}</td><td class="mono">${num(a.funding)}</td></tr>`).join('')}</tbody></table></div>`;
+    $('#detail-content').innerHTML = `<div class="stats-grid">${data.map(([label, value, hint]) => `<div class="detail-stat"><label>${label}</label><strong>${value}</strong><small>${esc(hint)}</small></div>`).join('')}</div>${assets}<div class="detail-note">${r.metadata.warnings.map(esc).join(' ')} ${s.trades < 20 ? '本期間交易少於 20 筆，統計證據有限。' : ''}</div>`;
+  } else if (state.tab === 'trades') renderTrades();
+  else if (state.tab === 'monthly') $('#detail-content').innerHTML = `<div class="heatmap">${s.monthly.map(m => `<div class="month-cell ${m.return < 0 ? 'loss' : ''}"><small>${m.month}</small><strong>${pct(m.return)}</strong></div>`).join('')}</div><div class="detail-note">依 UTC 月末淨值計算，包含未實現損益；首末月份可能不完整。</div>`;
+  else if (state.tab === 'walk') $('#detail-content').innerHTML = `<div class="fold-grid">${r.folds.map((f, i) => `<div class="fold"><h4>FOLD 0${i + 1} · 樣本外</h4><span class="dates">${date(f.start)} → ${date(f.end)}</span><strong class="${color(f.test.totalReturn)}">${pct(f.test.totalReturn)}</strong><p>本折訓練首選：${esc(f.strategy)}</p><div class="fold-stats"><span>Sharpe ${num(f.test.sharpe)}</span><span>回撤 ${num(f.test.maxDrawdown)}%</span><span>${f.test.trades} 筆</span></div></div>`).join('')}</div><div class="detail-note">固定使用總期間 50% 作訓練窗，向前滾動 3 折。每折先選參數，再測未見資料，獨立重新配置起始資金。各折報酬不可直接相加，也不是上方 70/30 保留資料的獨立額外樣本。</div>`;
+  else $('#detail-content').innerHTML = `<div class="snapshot-grid">${Object.entries(r.snapshot).map(([key, v]) => `<div class="snapshot-item"><small>${esc(indicatorCatalog[key] ?? key)}</small><strong>${num(v, Math.abs(v) < 1 ? 6 : 2)}</strong></div>`).join('')}</div><div class="detail-note">${esc(r.metadata.symbols[0])} · 歷史資料最後一根已收盤 K 線（${datetime(r.metadata.end)} UTC），不是即時指標。null／不足暖機顯示「—」。</div>`;
+}
+function renderTrades() {
+  const rows = currentReport().trades.filter(t => !state.tradeSide || t.side === state.tradeSide), size = 20;
+  const pages = Math.max(1, Math.ceil(rows.length / size)); state.tradePage = Math.min(state.tradePage, pages - 1);
+  $('#detail-content').innerHTML = `<div class="detail-toolbar"><span>完整成交紀錄 · UTC</span><select id="trade-side" aria-label="交易方向"><option value="">全部方向</option><option value="long">做多</option><option value="short">做空</option></select><span>${rows.length} 筆</span><button class="secondary" id="export-trades">↓ 匯出全部交易 CSV</button></div><div class="table-scroll"><table><thead><tr><th>交易對 / 方向</th><th>進場時間</th><th>出場時間</th><th>進場價</th><th>出場價</th><th>數量</th><th>淨損益</th><th>保證金報酬</th><th>手續費</th><th>資金費率</th><th>出場原因</th></tr></thead><tbody>${rows.slice(state.tradePage * size, (state.tradePage + 1) * size).map(t => `<tr><td>${esc(t.symbol)} <span class="${t.side === 'long' ? 'positive' : 'negative'}">${t.side === 'long' ? '多' : '空'}</span></td><td class="mono">${datetime(t.entryTime)}</td><td class="mono">${datetime(t.exitTime)}</td><td class="mono">${price(t.entry)}</td><td class="mono">${price(t.exit)}</td><td class="mono">${num(t.qty, 5)}</td><td class="mono ${color(t.pnl)}">${num(t.pnl)}</td><td class="mono ${color(t.return)}">${pct(t.return)}</td><td class="mono">${num(t.fees)}</td><td class="mono">${num(t.funding)}</td><td>${reasons[t.reason]}</td></tr>`).join('') || '<tr><td colspan="11" class="empty-state">此期間沒有符合條件的交易；請調整策略或日期。</td></tr>'}</tbody></table></div><div class="pagination"><span>${state.tradePage + 1} / ${pages}</span><button data-trade-page="-1" ${state.tradePage === 0 ? 'disabled' : ''}>←</button><button data-trade-page="1" ${state.tradePage >= pages - 1 ? 'disabled' : ''}>→</button></div>`;
+  $('#trade-side').value = state.tradeSide;
+}
+function download(name, content, type) {
+  const blob = new Blob([content], { type }), url = URL.createObjectURL(blob), link = document.createElement('a');
+  link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function exportTrades() {
+  if (!state.result) return toast('請先執行回測');
+  const keys = ['symbol', 'side', 'entryTime', 'exitTime', 'entry', 'exit', 'qty', 'pnl', 'return', 'fees', 'funding', 'slippageCost', 'reason'];
+  const safe = v => { const text = String(v); return `"${(typeof v === 'string' && /^[=+\-@]/.test(text) ? `'${text}` : text).replaceAll('"', '""')}"`; };
+  const rows = currentReport().trades.map(t => keys.map(key => safe(key.endsWith('Time') ? new Date(t[key]).toISOString() : t[key])).join(','));
+  download(`quantlab-${state.range}-trades.csv`, '\ufeff' + [keys.join(','), ...rows].join('\n'), 'text/csv;charset=utf-8');
+}
+function saveConfig() {
+  const values = Object.fromEntries(new FormData($('#config-form')));
+  const config = { version: 1, market: state.market, symbols: state.symbols, quote: state.quote, values, optimize: $('#optimize').checked, rules: readRules() };
+  try { localStorage.setItem('quantlab-config-v1', JSON.stringify(config)); toast('設定已儲存在此瀏覽器'); } catch { toast('此瀏覽器不允許本機儲存'); }
+}
+async function loadConfig() {
+  if (state.running) return;
+  try {
+    const config = JSON.parse(localStorage.getItem('quantlab-config-v1'));
+    if (!config || config.version !== 1) return toast('尚無已儲存的設定');
+    await switchMarket(config.market);
+    for (const [name, value] of Object.entries(config.values)) { const element = $('#config-form').elements.namedItem(name); if (element && element.type !== 'checkbox') element.value = value; }
+    state.symbols = config.symbols.slice(0, 6); state.quote = config.quote; $('#optimize').checked = config.optimize;
+    initRules(config.rules); strategyChanged(); renderSymbols(); await sourceChanged(); toast('已載入設定，執行回測即可更新結果');
+  } catch { toast('儲存的設定無法讀取'); }
+}
+function initContent() {
+  $('#strategy').insertAdjacentHTML('beforeend', strategyCatalog.map(s => `<option value="${s.id}">${s.name} · ${s.indicators}</option>`).join('') + '<option value="custom">＋ 自訂技術指標策略</option>');
+  $('#strategy-cards').innerHTML = strategyCatalog.map((s, i) => `<article class="strategy-card"><div class="strategy-number">STRATEGY ${String(i + 1).padStart(2, '0')}</div><h3>${s.name}</h3><div class="indicator-label">${s.indicators}</div><p>${s.description}</p><button class="secondary" data-use-strategy="${s.id}">加入實驗 →</button></article>`).join('');
+  $('#indicator-tags').innerHTML = Object.entries(indicatorCatalog).map(([key, label]) => `<span class="indicator-tag" title="規則代碼：${key}">${label}</span>`).join('');
+  const sections = [
+    ['01 / 資料範圍', '現貨載入幣安目前所有可交易交易對。合約支援 USDⓈ-M 的 USDT／USDC 永續，雙向交易、1–10 倍逐倉模型；不包含 COIN-M 或交割合約。公開行情不需要 API 金鑰。示範資料是可重現的合成序列，不能據以判斷真實獲利。'],
+    ['02 / 訊號與成交', '先下載額外 220 根 K 線暖機，再使用至少 200 根歷史建立指標。第 t 根收盤計算訊號，在第 t+1 根開盤用市價成交。每交易對同時只持有一個方向；訊號平倉當根不反手。期末會強制平倉，確保費用與損益完整入帳。'],
+    ['03 / 停損與成本', '手續費於進出場分別計算，滑價永遠採不利方向。跳空越過停損時使用開盤價，不假設能以停損價成交。同根 K 線同時觸及停損、停利時採停損；若亦碰觸清算則清算優先。移動停損只根據已完成的收盤價調整，下一根才生效。'],
+    ['04 / 合約與清算', '資金費率使用歷史事件的標記價格，正費率由多方支付、空方收取。僅提供 5m／15m／1h，事件歸入該 K 線開盤前持倉。淨值與清算使用標記價格 K 線。清算採固定可調維持保證金率，估計清算時沒收剩餘逐倉保證金；不等於交易所分級維持保證金、保險基金、ADL 或精確清算費。'],
+    ['05 / 策略選擇與驗證', '前 70% 作訓練，最後 30% 保留驗證。排名分數為「訓練 Sharpe − |最大回撤 %| / 25 + min(交易數, 30) / 100」。少於 3 筆交易、無有效 Sharpe 或曾清算的候選降級。只有訓練結果參與選擇，樣本外從原始資金重新開始。另用固定 50% 訓練窗跑 3 折滾動驗證，各折獨立選策略。'],
+    ['06 / 統計定義', '加密資產以一年 365 天計算。Sharpe 與 Sortino 使用 UTC 日末淨值日報酬、零無風險利率；少於 7 天不提供。CAGR 少於 30 天不年化。回撤使用含未實現損益的逐根淨值。買入持有為同成本、無槓桿、不含資金費率的價格基準。多幣種等額分配各自獨立帳戶，沒有再平衡或跨資產保證金。'],
+    ['07 / 結果的適用範圍', '歷史回測不能保證未來報酬。清單來自目前仍交易的資產，存在倖存者偏誤。未模擬委託簿、成交量限制、最小下單量、交易所精度與稅費。大量參數搜尋、反覆查看樣本外再調參，仍然會過度擬合。請比較多種市場狀況與足夠交易樣本。平台不會下單。'],
+    ['08 / 可重現的研究', '研究報告 JSON 包含完整設定、策略參數、資料來源與取得時間、排名、淨值、逐筆交易、滾動驗證及原始 K 線／資金費率，可用 npm run replay 離線重播。CSV 提供目前檢視期間全部交易。市場報價透過 WebSocket 更新，失敗時改為每 15 秒 REST 輪詢；歷史資料失敗會明確報錯，不會自動改用合成資料。'],
+  ];
+  $('#method-content').innerHTML = '<div class="method-flow"><span>歷史資料 + 暖機</span> → <span>70% 訓練選策略</span> → <span>30% 樣本外驗證</span></div>' + sections.map(([title, text]) => `<div class="method-block"><h3>${title}</h3><p>${text}</p></div>`).join('');
+  const today = new Date(); const end = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  $('#end-date').value = date(end); $('#start-date').value = date(end - 90 * 86400000);
+  $('#end-date').max = date(end); $('#start-date').max = date(end);
+  $('#summary').innerHTML = ['淨報酬率', '最大回撤', 'Sharpe 比率', '交易勝率'].map(label => `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">—</div><div class="stat-sub">等待回測</div></div>`).join('');
+  $('#equity-chart').innerHTML = '<div class="chart-empty">正在準備研究資料…</div>';
+  initRules(); renderSymbols(); renderDetail();
+}
+document.addEventListener('click', event => {
+  const el = event.target.closest('button, a.brand'); if (!el) return;
+  if (el.dataset.view) view(el.dataset.view);
+  if (el.matches('.brand')) view('workbench');
+  if (el.id === 'help-button') view('method');
+  if (el.dataset.market) switchMarket(el.dataset.market);
+  if (el.id === 'connect-live' || el.id === 'use-demo') { if (state.running) return; $('#source').value = el.id === 'connect-live' ? 'live' : 'demo'; sourceChanged(); }
+  if (el.dataset.removeSymbol) { if (state.running) return; state.symbols = state.symbols.filter(s => s !== el.dataset.removeSymbol); renderSymbols(); markDirty(); }
+  if (el.dataset.addSymbol) { const before = state.symbols.length; addSymbol(el.dataset.addSymbol); if (state.symbols.length > before) toast('已加入回測交易對'); }
+  if (el.dataset.marketPage) { state.marketPage += Number(el.dataset.marketPage); renderMarkets(); }
+  if (el.dataset.tradePage) { state.tradePage += Number(el.dataset.tradePage); renderTrades(); }
+  if (el.dataset.range) { state.range = el.dataset.range; state.tradePage = 0; renderResults(); }
+  if (el.dataset.tab) { state.tab = el.dataset.tab; renderDetail(); }
+  if (el.dataset.useStrategy) { if (state.running) return; $('#strategy').value = el.dataset.useStrategy; strategyChanged(); view('workbench'); $('#strategy').focus(); }
+  if (el.classList.contains('add-rule')) { const list = el.previousElementSibling; if (list.children.length < 8) list.append(ruleRow()); markDirty(); }
+  if (el.classList.contains('remove-rule')) { el.closest('.rule-row').remove(); markDirty(); }
+  if (el.id === 'cancel-button') { state.abort?.abort(); state.worker?.terminate(); state.rejectWorker?.(new DOMException('已停止', 'AbortError')); }
+  if (el.id === 'export-report') { if (!state.result) return toast('請先執行回測'); download(`quantlab-report-${date(Date.now())}.json`, JSON.stringify({ version: 1, ...state.result, datasets: state.datasets }, null, 2), 'application/json'); }
+  if (el.id === 'export-trades') exportTrades();
+  if (el.id === 'save-config') saveConfig();
+  if (el.id === 'load-config') loadConfig();
+  if (el.id === 'refresh-markets') refreshMarkets();
+});
+document.addEventListener('change', event => {
+  if (event.target.id === 'source') sourceChanged();
+  if (event.target.id === 'strategy') strategyChanged();
+  if (event.target.id === 'symbol-search') { const symbol = event.target.value.trim().toUpperCase(); addSymbol(symbol); event.target.value = ''; }
+  if (event.target.id === 'quote-filter') { state.marketPage = 0; renderMarkets(); }
+  if (event.target.id === 'trade-side') { state.tradeSide = event.target.value; state.tradePage = 0; renderTrades(); }
+});
+$('#market-search').addEventListener('input', () => { state.marketPage = 0; renderMarkets(); });
+$('#config-form').addEventListener('input', markDirty);
+$('#config-form').addEventListener('submit', event => { event.preventDefault(); runBacktest(); });
+initContent();
+const initialView = location.hash.slice(1); if (['workbench', 'markets', 'strategies', 'method'].includes(initialView)) view(initialView);
+await refreshMarkets();
+runBacktest();

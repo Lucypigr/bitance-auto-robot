@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="quantlab-mode" content="static"><meta name="theme-color" content="#0b0e13"><title>QuantLab — 加密資產策略研究室</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23d8fa73'/%3E%3Cpath d='M10 27V15l7 5 6-11 7 18' fill='none' stroke='%2313170b' stroke-width='4'/%3E%3C/svg%3E"><link rel="stylesheet" href="./style.css"><script type="module" src="./app.js"></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="#workbench"><span class="brand-mark">⌁</span>Quant<span>Lab</span><small>BETA</small></a>
+  <div class="workspace-label">RESEARCH WORKSPACE</div>
+  <nav aria-label="主選單">
+    <button class="nav-item active" data-view="workbench"><span class="nav-icon">▥</span> 回測工作台 <span class="nav-dot"></span></button>
+    <button class="nav-item" data-view="markets"><span class="nav-icon">◈</span> 市場總覽</button>
+    <button class="nav-item" data-view="strategies"><span class="nav-icon">⌘</span> 策略與指標</button>
+    <button class="nav-item" data-view="method"><span class="nav-icon">▤</span> 回測方法</button>
+  </nav>
+  <div class="sidebar-divider"></div><div class="workspace-label">YOUR RESEARCH</div>
+  <button class="nav-item" id="save-config"><span class="nav-icon">⊞</span> 儲存本機設定</button>
+  <button class="nav-item" id="load-config"><span class="nav-icon">↺</span> 載入本機設定</button>
+  <div class="sidebar-bottom"><div class="connection-orb"></div><strong>公開市場資料</strong><p>Binance Spot & Futures<br>研究、驗證，再做決策。</p><div class="profile"><span>QL</span><div>個人研究空間<small>LOCAL WORKSPACE</small></div></div></div>
+</aside>
+<div class="shell">
+  <header class="topbar"><div class="breadcrumb">研究空間 <span>/</span> <strong id="breadcrumb-title">回測工作台</strong></div><div class="topbar-right"><span id="connection-badge" class="status-badge demo"><i></i>示範資料</span><span class="utc-label">UTC</span><button class="icon-button" id="help-button" title="回測方法" aria-label="回測方法">?</button></div></header>
+  <main>
+    <section class="page-heading"><div><div class="eyebrow">BUILD CONVICTION WITH DATA</div><h1 id="page-title">讓每一個策略，都經得起驗證<span>.</span></h1><p id="page-description">從市場訊號到交易決策，探索策略在不同市場下的真實表現。</p></div><button class="secondary" id="export-report">↗ 匯出研究報告</button></section>
+    <div id="data-banner" class="data-banner"><span>◉</span><div><strong>目前使用可重現的合成示範資料</strong><span>非幣安實際行情，績效僅用於操作與模型驗證。</span></div><button id="connect-live">連接幣安行情 →</button></div>
+    <div id="notice" class="notice hidden" role="alert"></div>
+    <section id="market-strip" class="market-strip" aria-label="市場行情摘要"></section>
+    <div id="view-workbench" class="view">
+      <div class="section-heading"><div><span class="live-dot"></span><h2>策略實驗室</h2><span class="muted">/ BACKTEST STUDIO</span></div><span id="report-state" class="small-label">準備研究資料</span></div>
+      <div class="studio-layout">
+        <div class="results-column">
+          <div class="summary-row" id="summary"></div>
+          <section class="panel chart-panel"><div class="panel-heading"><div><h3>資產淨值曲線 <span class="info-dot" title="包含交易成本。樣本外績效來自保留的最後 30% 資料。">i</span></h3><p id="chart-caption">正在準備策略結果</p></div><div class="segmented" id="range-selector"><button class="active" data-range="test">樣本外 30%</button><button data-range="full">完整期間</button></div></div><div class="chart-legend"><span><i class="legend-line strategy"></i>策略淨值</span><span><i class="legend-line benchmark"></i>1× 買入持有</span><span id="chart-unit">USDT</span></div><div id="equity-chart" class="chart-wrap" aria-label="策略與買入持有淨值曲線"></div><div class="drawdown-heading"><span>回撤 DRAWDOWN</span><span id="drawdown-max"></span></div><div id="drawdown-chart" class="drawdown-wrap" aria-label="淨值回撤曲線"></div><div class="chart-foot"><span id="period-label">—</span><span>已扣除手續費與滑價</span></div></section>
+          <section class="panel ranking-panel"><div class="panel-heading"><div><h3>策略比較 <span class="count-badge" id="candidate-count">0</span></h3><p>依訓練期風險調整分數排序，保留樣本外結果供驗證</p></div><span class="outline-badge">70 / 30 分割</span></div><div class="table-scroll"><table><thead><tr><th>排名 / 策略組合</th><th>訓練報酬</th><th>訓練 Sharpe</th><th>樣本外報酬</th><th>樣本外回撤</th><th>交易數</th></tr></thead><tbody id="ranking-body"></tbody></table></div><div id="ranking-insight" class="insight"></div></section>
+        </div>
+        <aside class="panel config-panel"><div class="config-title"><div><span class="eyebrow">CONFIGURATION</span><h3>回測設定</h3></div><span>⚙</span></div>
+          <form id="config-form">
+            <label>資料來源<select name="source" id="source"><option value="demo">合成示範資料</option><option value="live">幣安公開行情</option></select></label>
+            <div class="field-label">交易市場</div><div class="segmented market-switch"><button type="button" data-market="spot" class="active">現貨 SPOT</button><button type="button" data-market="futures">永續合約</button></div>
+            <label>交易對 <span class="field-hint">最多 6 組，同報價幣</span><input id="symbol-search" list="symbol-options" placeholder="搜尋 BTCUSDT、ETHUSDT…" autocomplete="off"><datalist id="symbol-options"></datalist></label><div id="selected-symbols" class="symbol-chips"></div>
+            <div class="field-grid"><label>K 線週期<select name="interval" id="interval"><option value="5m">5 分鐘</option><option value="15m">15 分鐘</option><option value="1h" selected>1 小時</option><option value="4h">4 小時</option><option value="1d">1 天</option></select></label><label>起始資金 <span class="quote-label">USDT</span><input name="capital" id="capital" type="number" min="100" max="1000000000" step="100" value="10000" required></label></div>
+            <div class="field-grid"><label>開始日期 UTC<input name="start" id="start-date" type="date" required></label><label>結束日期 UTC <span class="field-hint">不含當日</span><input name="end" id="end-date" type="date" required></label></div>
+            <label>策略組合<select name="strategy" id="strategy"><option value="auto">自動比較所有策略</option></select></label>
+            <p id="strategy-hint" class="form-hint">以訓練期結果選出策略，再驗證樣本外表現。</p>
+            <div id="custom-builder" class="hidden"><p class="form-hint">同組規則採 AND；留空表示不啟用。比較值可填數字或指標名稱。</p><div id="rule-groups"></div></div>
+            <label class="checkbox-label"><input id="optimize" name="optimize" type="checkbox" checked><span>比較參數組合<small>最多 24 組候選 · 3 折滾動驗證</small></span></label>
+            <div class="config-divider"></div><div class="field-label">執行成本與風控 <span class="tiny-pill">雙邊成本</span></div>
+            <div class="field-grid"><label>單邊手續費 %<input name="fee" id="fee" type="number" min="0" max="2" step="0.01" value="0.10" required></label><label>單邊滑價 %<input name="slippage" id="slippage" type="number" min="0" max="2" step="0.01" value="0.05" required></label><label>每次投入資金 %<input name="allocation" id="allocation" type="number" min="1" max="100" step="1" value="95" required></label><label>停損 % <span class="field-hint">0 關閉</span><input name="stopLoss" id="stopLoss" type="number" min="0" max="50" step="0.1" value="4" required></label><label>停利 % <span class="field-hint">0 關閉</span><input name="takeProfit" id="takeProfit" type="number" min="0" max="200" step="0.1" value="10" required></label><label>移動停損 %<input name="trailingStop" id="trailingStop" type="number" min="0" max="50" step="0.1" value="3" required></label></div>
+            <div id="futures-fields" class="hidden"><div class="field-grid"><label>槓桿倍數<input name="leverage" id="leverage" type="number" min="1" max="10" step="1" value="2" required></label><label>維持保證金率 %<input name="maintenance" id="maintenance" type="number" min="0.1" max="10" step="0.1" value="0.5" required></label></div><p class="form-hint amber">逐倉清算估算；含歷史資金費率與標記價格。不含分級保證金、ADL。</p></div>
+            <button type="submit" class="primary run-button" id="run-button"><span>▷</span> 執行策略回測 <span>↗</span></button><button type="button" class="cancel-button hidden" id="cancel-button">停止本次運算</button><div id="progress" role="status" aria-live="polite"><span>計算使用 Web Worker，不阻塞操作</span><div class="progress-track"><i></i></div></div>
+          </form>
+        </aside>
+      </div>
+      <section class="panel detail-panel"><div class="detail-tabs" role="tablist" aria-label="回測詳細報告"><button class="active" role="tab" data-tab="stats">績效詳情</button><button role="tab" data-tab="trades">交易紀錄</button><button role="tab" data-tab="monthly">月度報酬</button><button role="tab" data-tab="walk">滾動驗證</button><button role="tab" data-tab="indicators">指標快照</button><span id="detail-range-label">樣本外期間</span></div><div id="detail-content"></div></section>
+    </div>
+    <div id="view-markets" class="view hidden"><section class="panel"><div class="panel-heading"><div><h2>全部可交易市場</h2><p id="market-count"></p></div><div class="market-filters"><input id="market-search" placeholder="搜尋幣種或交易對" aria-label="搜尋市場"><select id="quote-filter" aria-label="報價幣篩選"><option value="">全部報價幣</option><option value="USDT" selected>USDT</option></select><button class="secondary" id="refresh-markets">↻ 更新</button></div></div><div class="table-scroll"><table><thead><tr><th>交易對</th><th>最新價格</th><th>24h 漲跌</th><th>24h 最高</th><th>24h 最低</th><th>24h 成交額（報價幣）</th><th></th></tr></thead><tbody id="markets-body"></tbody></table></div><div class="pagination" id="market-pagination"></div></section></div>
+    <div id="view-strategies" class="view hidden"><div id="strategy-cards" class="strategy-grid"></div><section class="panel indicator-library"><h2>技術指標資料庫</h2><p>趨勢、動能、波動與成交量。所有指標僅使用當下與過去資料。</p><div id="indicator-tags"></div></section></div>
+    <div id="view-method" class="view hidden"><section class="panel method-content"><div class="eyebrow">RESEARCH METHODOLOGY</div><h2>了解數字如何產生，才能理解結果。</h2><div id="method-content"></div></section></div>
+    <footer><span><b>QuantLab</b> / 用資料建立判斷</span><span>歷史績效不代表未來報酬。此平台提供研究分析，未連接下單功能。</span></footer>
+  </main>
+</div><div id="toast" role="status" aria-live="polite"></div>
+</body></html>

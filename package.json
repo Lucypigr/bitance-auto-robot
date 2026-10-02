@@ -1,0 +1,23 @@
+{
+  "name": "binance-quant-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "JavaScript Binance spot and perpetual futures research platform",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --use-env-proxy src/server.js",
+    "dev": "node --use-env-proxy --watch src/server.js",
+    "test": "node --test tests/*.test.js",
+    "test:e2e": "playwright test",
+    "replay": "node scripts/replay.js",
+    "build:pages": "node scripts/build-pages.js",
+    "preview:pages": "node scripts/serve-pages.js",
+    "test:pages": "playwright test --config playwright.pages.config.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

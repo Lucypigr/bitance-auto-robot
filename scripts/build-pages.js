@@ -1,0 +1,12 @@
+import { mkdir, readFile, writeFile, copyFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+const root = resolve(import.meta.dirname, '..');
+const output = resolve(root, 'docs');
+await mkdir(resolve(output, 'src'), { recursive: true });
+for (const file of ['app.js', 'charts.js', 'style.css', 'worker.js']) await copyFile(resolve(root, 'public', file), resolve(output, file));
+for (const file of ['backtest.js', 'binance.js', 'demo.js', 'indicators.js', 'strategies.js']) await copyFile(resolve(root, 'src', file), resolve(output, 'src', file));
+const html = await readFile(resolve(root, 'public/index.html'), 'utf8');
+if (!html.includes('<meta name="theme-color"')) throw new Error('找不到靜態版標記插入位置');
+await writeFile(resolve(output, 'index.html'), html.replace('<meta name="theme-color"', '<meta name="quantlab-mode" content="static"><meta name="theme-color"'));
+await writeFile(resolve(output, '.nojekyll'), '');
+console.log('GitHub Pages static site generated at docs/');
