@@ -15,6 +15,38 @@ const datetime = time => new Date(time).toISOString().slice(0, 16).replace('T', 
 const compact = v => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(v);
 const price = v => num(v, v < 1 ? 6 : v < 100 ? 3 : 2);
 const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT' };
+const beginnerStrategyGuide = {
+  trend: { name: '順著強勢趨勢走', intro: '只在方向很明顯時跟著趨勢進場。' },
+  rsi: { name: '超跌後等反彈', intro: '價格短線跌太多時買進，恢復正常後離場。' },
+  bollinger: { name: '跌出正常範圍後反彈', intro: '價格掉到近期波動範圍外，再配合超跌訊號進場。' },
+  donchian: { name: '突破近期高點就跟進', intro: '價格真的突破近期區間，而且成交量放大才追進。' },
+  macd: { name: '動能轉強才買', intro: '等上漲動能出現，並確認大方向仍向上才進場。' },
+  stochastic: { name: '短線超跌反彈', intro: '短線跌到偏低位置，出現轉強交叉後進場。' },
+  supertrend: { name: '趨勢翻多就跟進', intro: '趨勢指標轉為上漲且力量足夠時進場。' },
+  keltner: { name: '價格衝出波動區間就跟進', intro: '價格突破平常波動範圍，且動能同方向時進場。' },
+  vwap: { name: '價格與成交量一起轉強', intro: '價格站回平均成交成本上方，成交量方向也轉強才進場。' },
+  cci: { name: '市場過冷後等反彈', intro: '兩個過熱／過冷指標同時極端時，等待反轉。' },
+  custom: { name: '我的自訂規則', intro: '使用你自己設定的進場與出場條件。' }
+};
+function beginnerStrategy(strategy) {
+  const key = strategy?.id?.split(':')[0] ?? 'custom';
+  const p = strategy?.params ?? {};
+  const base = beginnerStrategyGuide[key] ?? beginnerStrategyGuide.custom;
+  const rule = {
+    trend: `短期均線在長期均線上方、MACD 動能向上，而且趨勢強度 ADX > ${p.adx ?? 20} 時買進；均線或動能轉弱就賣出。`,
+    rsi: `RSI < ${p.low ?? 30} 時視為短線超跌並買進；RSI 回到 50 以上賣出。合約模式下 RSI > ${p.high ?? 70} 時可做空。`,
+    bollinger: `價格跌破布林通道下緣，而且 RSI < ${p.low ?? 35} 時買進；價格回到通道中線時賣出。`,
+    donchian: `價格突破最近 20 根 K 線高點，而且成交量高於平均的 ${num((p.volume ?? 1.1) * 100, 0)}% 時買進；跌回 EMA26 下方就離場。`,
+    macd: 'MACD 由弱轉強出現黃金交叉，而且價格在 EMA200 上方時買進；MACD 反向交叉時賣出。',
+    stochastic: `KD 在低檔交叉向上、K < ${p.low ?? 25} 且 RSI < 50 時買進；K > 75 時離場。`,
+    supertrend: `Supertrend 顯示上漲，而且 ADX > ${p.adx ?? 20} 時買進；Supertrend 翻成下跌就賣出。`,
+    keltner: '價格突破 Keltner 通道上緣，而且 MACD 動能為正時買進；跌回 EMA26 下方就離場。',
+    vwap: '價格由下往上站上當日 VWAP，同時 OBV 與 RSI 都轉強時買進；跌回 VWAP 下方就離場。',
+    cci: `CCI < -${p.threshold ?? 100} 且 MFI < 25 時買進；CCI 回到 0 以上時賣出。`,
+    custom: '依照你在「自訂規則」中設定的條件進出場。'
+  }[key] ?? base.intro;
+  return { ...base, rule, technical: strategy?.name ?? '自訂策略', indicators: strategy?.indicators ?? '自訂規則' };
+}
 let toastTimer, pollTimer, reconnectTimer, websocketTime = 0, marketPaint = 0;
 function toast(message) { $('#toast').textContent = message; $('#toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 3000); }
 function notice(message = '') { $('#notice').textContent = message; $('#notice').classList.toggle('hidden', !message); }
@@ -22,7 +54,7 @@ function view(name) {
   state.view = name;
   $$('.view').forEach(el => el.classList.toggle('hidden', el.id !== `view-${name}`));
   $$('[data-view]').forEach(el => el.classList.toggle('active', el.dataset.view === name));
-  $('#breadcrumb-title').textContent = { workbench: '回測工作台', markets: '市場總覽', strategies: '策略與指標', method: '回測方法' }[name];
+  $('#breadcrumb-title').textContent = { workbench: '開始回測', markets: '幣種行情', strategies: '策略說明', method: '進階說明' }[name];
   if (name === 'markets') renderMarkets();
   history.replaceState(null, '', `#${name}`);
 }
@@ -152,7 +184,9 @@ function readRules() {
 function strategyChanged() {
   const id = $('#strategy').value;
   $('#custom-builder').classList.toggle('hidden', id !== 'custom');
-  $('#strategy-hint').textContent = id === 'auto' ? '以訓練期結果選出策略，再驗證樣本外表現。' : id === 'custom' ? '用指標與數值建立自己的策略，不需撰寫程式。' : strategyCatalog.find(s => s.id === id).description;
+  if (id === 'auto') $('#strategy-hint').textContent = '最適合第一次使用：系統會把所有方法都跑一次，再把結果並排給你看。';
+  else if (id === 'custom') $('#strategy-hint').textContent = '你可以自己設定買進與賣出條件；第一次使用可先跳過。';
+  else { const s = strategyCatalog.find(s => s.id === id); const plain = beginnerStrategy(s); $('#strategy-hint').textContent = `${plain.intro} 具體規則：${plain.rule}`; }
   markDirty();
 }
 function readOptions() {
@@ -170,7 +204,7 @@ function busy(active) {
   state.running = active; document.body.classList.toggle('busy', active);
   $$('#config-form input, #config-form select, #config-form button').forEach(el => { el.disabled = active; });
   $('#cancel-button').disabled = false; $('#cancel-button').classList.toggle('hidden', !active);
-  $('#run-button').innerHTML = active ? '<span>◌</span> 正在分析策略… <span>↗</span>' : '<span>▷</span> 執行策略回測 <span>↗</span>';
+  $('#run-button').innerHTML = active ? '<span>◌</span> 正在用歷史資料模擬買賣… <span>↗</span>' : '<span>▷</span> 開始回測 <span>↗</span>';
 }
 function progress(value, message) { $('#progress>span').textContent = message; $('#progress i').style.width = `${value}%`; }
 async function runBacktest() {
@@ -228,13 +262,15 @@ function renderResults() {
   const benchmarkReturn = (report.benchmark.at(-1).value / result.options.capital - 1) * 100;
   $('#report-state').textContent = `${source === 'synthetic' ? '合成示範結果' : '幣安資料'} · ${result.options.market === 'spot' ? '現貨' : `${result.options.leverage}× 合約`} · ${result.metadata.symbols.join(' / ')}`;
   const cards = [
-    ['淨報酬率', pct(s.totalReturn), color(s.totalReturn), `買入持有 <strong>${pct(benchmarkReturn)}</strong>`, '↗'],
-    ['最大回撤', `${num(s.maxDrawdown)}%`, 'negative', `水下期間最長 <strong>${num(s.drawdownDays, 1)} 天</strong>`, '↘'],
-    ['Sharpe 比率', num(s.sharpe), '', 'UTC 日報酬 · 無風險利率 0', '◈'],
-    ['交易勝率', `${num(s.winRate, 1)}%`, '', `<strong>${s.wins}</strong> 勝 / <strong>${s.losses}</strong> 負 · 共 ${s.trades} 筆`, '◎'],
+    ['這次賺／賠多少', pct(s.totalReturn), color(s.totalReturn), `假設投入 <strong>${num(result.options.capital)} ${result.metadata.quote}</strong>`, '↗'],
+    ['最慘曾跌多少', `${num(s.maxDrawdown)}%`, 'negative', '從某個高點往下最多跌這麼多', '↘'],
+    ['交易勝率', `${num(s.winRate, 1)}%`, '', `<strong>${s.wins}</strong> 次賺錢 / <strong>${s.losses}</strong> 次賠錢 · 共 ${s.trades} 次`, '◎'],
+    ['最後剩多少', `${num(s.endValue)}`, color(s.netProfit), `${result.metadata.quote} · 買著不動同期 ${pct(benchmarkReturn)}`, '◈'],
   ];
   $('#summary').innerHTML = cards.map(([label, value, cls, sub, icon]) => `<div class="stat-card"><div class="stat-label">${label}<span>${icon}</span></div><div class="stat-value ${cls}">${value}</div><div class="stat-sub">${sub}</div></div>`).join('');
-  $('#chart-caption').textContent = `${result.best.name} · ${source === 'synthetic' ? '合成示範' : 'Binance'} · ${state.range === 'test' ? '最後 30% 保留資料，獨立起始資金' : '完整期間含訓練資料，非純樣本外績效'}`;
+  const plain = beginnerStrategy(result.best);
+  $('#plain-summary').innerHTML = `<div class="plain-strategy"><span class="plain-kicker">這次系統選到的交易方法</span><h3>${esc(plain.name)}</h3><small>原技術名稱：${esc(plain.technical)} · ${esc(plain.indicators)}</small><p><b>怎麼買、怎麼賣：</b>${esc(plain.rule)}</p></div><div class="plain-result"><strong class="${color(s.totalReturn)}">${s.totalReturn >= 0 ? '這次回測有獲利' : '這次回測是虧損'} ${pct(s.totalReturn)}</strong><span>假設 ${num(result.options.capital)} ${result.metadata.quote} → ${num(s.endValue)} ${result.metadata.quote}</span><span>過程中從高點最多曾回落 ${num(s.maxDrawdown)}%</span><em>這只是歷史資料模擬，不代表之後一定會有相同結果。</em></div>`;
+  $('#chart-caption').textContent = `${plain.name} · ${source === 'synthetic' ? '練習用示範資料' : 'Binance 歷史資料'} · ${state.range === 'test' ? '最後 30% 資料另外測試' : '整段歷史資料'}`;
   $('#chart-unit').textContent = result.metadata.quote;
   $('#period-label').textContent = `${date(report.equity[0].time)} — ${date(report.equity.at(-1).time)} UTC`;
   $('#drawdown-max').textContent = `${num(s.maxDrawdown)}%`;
@@ -242,9 +278,9 @@ function renderResults() {
   $$('[data-range]').forEach(b => b.classList.toggle('active', b.dataset.range === state.range));
   equityChart($('#equity-chart'), report); drawdownChart($('#drawdown-chart'), report.equity);
   $('#candidate-count').textContent = result.ranking.length;
-  $('#ranking-body').innerHTML = result.ranking.map((r, i) => `<tr><td><span class="rank-number ${i === 0 ? 'winner' : ''}">${String(i + 1).padStart(2, '0')}</span><span class="strategy-name">${esc(r.strategy.name)}</span>${i === 0 ? '<span class="best-pill">訓練首選</span>' : ''}<span class="strategy-sub">${esc(r.strategy.indicators)}${Object.keys(r.strategy.params).length ? ` · ${esc(Object.entries(r.strategy.params).map(([k, v]) => `${k}=${v}`).join(' '))}` : ''}</span></td><td class="mono ${color(r.train.totalReturn)}">${pct(r.train.totalReturn)}</td><td class="mono">${num(r.train.sharpe)}</td><td class="mono ${color(r.test.totalReturn)}">${pct(r.test.totalReturn)}</td><td class="mono negative">${num(r.test.maxDrawdown)}%</td><td class="mono">${r.test.trades}</td></tr>`).join('');
-  const top = result.ranking[0];
-  $('#ranking-insight').innerHTML = `✧ <strong>${esc(result.best.name)}</strong> 在訓練期排名第一。${top.train.trades < 3 || top.train.sharpe === null ? '訓練交易數或日數不足，排名證據不足。' : ''}其樣本外報酬為 <strong>${pct(top.test.totalReturn)}</strong>，${top.test.totalReturn > 0 ? '仍須檢視回撤與跨期穩定性。' : '尚未顯示穩定的樣本外獲利優勢。'}${source === 'synthetic' ? ' 本次為合成資料，不能作為投資依據。' : ''}`;
+  $('#ranking-body').innerHTML = result.ranking.map((r, i) => { const p = beginnerStrategy(r.strategy); return `<tr><td><span class="rank-number ${i === 0 ? 'winner' : ''}">${String(i + 1).padStart(2, '0')}</span><span class="strategy-name">${esc(p.name)}</span>${i === 0 ? '<span class="best-pill">前段表現最好</span>' : ''}<span class="strategy-sub">${esc(p.rule)}</span></td><td class="mono ${color(r.train.totalReturn)}">${pct(r.train.totalReturn)}</td><td class="mono ${color(r.test.totalReturn)}">${pct(r.test.totalReturn)}</td><td class="mono negative">${num(r.test.maxDrawdown)}%</td><td class="mono">${r.test.trades}</td></tr>`; }).join('');
+  const top = result.ranking[0], topPlain = beginnerStrategy(top.strategy);
+  $('#ranking-insight').innerHTML = `✧ 前 70% 資料裡，<strong>${esc(topPlain.name)}</strong> 表現最好；拿最後 30% 沒參與挑選的資料再測，結果是 <strong>${pct(top.test.totalReturn)}</strong>。${top.train.trades < 3 || top.train.sharpe === null ? ' 但交易次數太少，先不要把這個結果看得太重。' : ''}${top.test.totalReturn > 0 ? ' 後段仍為正報酬，但還要一起看最慘跌幅與交易次數。' : ' 後段變成虧損，表示前段好成績沒有穩定延續。'}${source === 'synthetic' ? ' 目前是練習資料，不能拿來判斷真實市場。' : ''}`;
   renderDetail();
 }
 const reasons = { signal: '策略出場', stop: '停損 / 移動停損', target: '停利', end: '期末平倉', liquidation: '估計清算' };
@@ -295,8 +331,8 @@ async function loadConfig() {
   } catch { toast('儲存的設定無法讀取'); }
 }
 function initContent() {
-  $('#strategy').insertAdjacentHTML('beforeend', strategyCatalog.map(s => `<option value="${s.id}">${s.name} · ${s.indicators}</option>`).join('') + '<option value="custom">＋ 自訂技術指標策略</option>');
-  $('#strategy-cards').innerHTML = strategyCatalog.map((s, i) => `<article class="strategy-card"><div class="strategy-number">STRATEGY ${String(i + 1).padStart(2, '0')}</div><h3>${s.name}</h3><div class="indicator-label">${s.indicators}</div><p>${s.description}</p><button class="secondary" data-use-strategy="${s.id}">加入實驗 →</button></article>`).join('');
+  $('#strategy').insertAdjacentHTML('beforeend', strategyCatalog.map(s => { const p = beginnerStrategy(s); return `<option value="${s.id}">${p.name}（${s.name}）</option>`; }).join('') + '<option value="custom">＋ 我自己設定買賣條件</option>');
+  $('#strategy-cards').innerHTML = strategyCatalog.map((s, i) => { const p = beginnerStrategy(s); return `<article class="strategy-card"><div class="strategy-number">方法 ${String(i + 1).padStart(2, '0')}</div><h3>${esc(p.name)}</h3><div class="indicator-label">技術名稱：${esc(s.name)} · ${esc(s.indicators)}</div><p><b>簡單說：</b>${esc(p.intro)}</p><p><b>實際規則：</b>${esc(p.rule)}</p><button class="secondary" data-use-strategy="${s.id}">用這個方法回測 →</button></article>`; }).join('');
   $('#indicator-tags').innerHTML = Object.entries(indicatorCatalog).map(([key, label]) => `<span class="indicator-tag" title="規則代碼：${key}">${label}</span>`).join('');
   const sections = [
     ['01 / 資料範圍', '現貨載入幣安目前所有可交易交易對。合約支援 USDⓈ-M 的 USDT／USDC 永續，雙向交易、1–10 倍逐倉模型；不包含 COIN-M 或交割合約。公開行情不需要 API 金鑰。示範資料是可重現的合成序列，不能據以判斷真實獲利。'],
@@ -312,7 +348,7 @@ function initContent() {
   const today = new Date(); const end = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
   $('#end-date').value = date(end); $('#start-date').value = date(end - 90 * 86400000);
   $('#end-date').max = date(end); $('#start-date').max = date(end);
-  $('#summary').innerHTML = ['淨報酬率', '最大回撤', 'Sharpe 比率', '交易勝率'].map(label => `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">—</div><div class="stat-sub">等待回測</div></div>`).join('');
+  $('#summary').innerHTML = ['這次賺／賠多少', '最慘曾跌多少', '交易勝率', '最後剩多少'].map(label => `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">—</div><div class="stat-sub">等待回測</div></div>`).join('');
   $('#equity-chart').innerHTML = '<div class="chart-empty">正在準備研究資料…</div>';
   initRules(); renderSymbols(); renderDetail();
 }
