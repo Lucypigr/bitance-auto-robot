@@ -1,0 +1,45 @@
+import { test, expect } from '@playwright/test';
+test('tutorial has six readable chapters, anchor navigation and a reloadable direct link', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('./#tutorial');
+  await expect(page.locator('#view-tutorial')).toBeVisible();
+  await expect(page.locator('#page-title')).toContainText('從第一次回測開始');
+  await expect(page.locator('#view-tutorial .tutorial-section')).toHaveCount(6);
+  await expect(page.locator('#tutorial-results')).toContainText('勝率 90%');
+  await expect(page.locator('#tutorial-results')).toContainText('−25%');
+  await page.locator('.tutorial-jumps a[href="#tutorial-results"]').click();
+  await expect(page).toHaveURL(/#tutorial-results$/);
+  await page.reload(); await expect(page.locator('#view-tutorial')).toBeVisible();
+  await expect(page.locator('#progress')).toContainText('已完成', { timeout: 30000 });
+  await page.locator('#tutorial-faq summary').first().click();
+  await expect(page.locator('#tutorial-faq details').first()).toHaveAttribute('open', '');
+  expect(errors).toEqual([]);
+});
+for (const preset of ['long', 'short', 'cross']) test(`tutorial ${preset} preset sets exact demo conditions and waits for user to run`, async ({ page }) => {
+  await page.goto('./#tutorial');
+  await expect(page.locator('#progress')).toContainText('已完成', { timeout: 30000 });
+  await page.locator(`#tutorial-examples [data-tutorial-preset="${preset}"]`).click();
+  await expect(page.locator('#view-workbench')).toBeVisible();
+  await expect(page.locator('#source')).toHaveValue('demo');
+  await expect(page.locator('#strategy')).toHaveValue('combination');
+  await expect(page.locator('.symbol-chip')).toHaveCount(2);
+  await expect(page.locator('#combo-stop')).toHaveValue('2');
+  await expect(page.locator('#combo-target')).toHaveValue('4');
+  await expect(page.locator('#combination-side')).toHaveValue(preset === 'long' ? 'long' : 'short');
+  const checked = await page.locator('[data-combo-type]:checked').evaluateAll(elements => elements.map(el => `${el.dataset.comboInterval}:${el.dataset.comboType}`));
+  expect(checked.sort()).toEqual((preset === 'long' ? ['4h:rsiOversold'] : preset === 'short' ? ['1d:rsiOverbought', '4h:macdDeath'] : ['4h:emaDeath', '4h:macdDeath']).sort());
+  await expect(page.locator('#notice')).toContainText('請按「開始回測」');
+  await expect(page.locator('#combination-results')).toBeHidden();
+  await page.locator('#run-button').click();
+  await expect(page.locator('#combination-assets tr')).toHaveCount(2, { timeout: 30000 });
+  await expect(page.locator('#progress')).toContainText('已完成');
+  await expect(page.locator('#report-state')).toContainText('合成示範');
+});
+test('mobile tutorial is accessible from workbench and fits the screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./'); await expect(page.locator('#progress')).toContainText('已完成', { timeout: 30000 });
+  await page.locator('.tutorial-entry button').click();
+  await expect(page.locator('#view-tutorial')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: 'test-results/tutorial-mobile.png', fullPage: true });
+});

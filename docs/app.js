@@ -56,7 +56,9 @@ function view(name) {
   state.view = name;
   $$('.view').forEach(el => el.classList.toggle('hidden', el.id !== `view-${name}`));
   $$('[data-view]').forEach(el => el.classList.toggle('active', el.dataset.view === name));
-  $('#breadcrumb-title').textContent = { workbench: '開始回測', markets: '幣種行情', strategies: '策略說明', method: '進階說明' }[name];
+  $('#breadcrumb-title').textContent = { workbench: '開始回測', tutorial: '新手回測教學', markets: '幣種行情', strategies: '策略說明', method: '進階說明' }[name];
+  $('#page-title').innerHTML = name === 'tutorial' ? '從第一次回測開始<span>.</span>' : '三步看懂一個交易策略<span>.</span>';
+  $('#page-description').textContent = name === 'tutorial' ? '跟著範例操作：把買賣想法寫成條件，跑一次，再看懂數字的意思。' : '選幣種、選交易方法、按開始。結果會直接告訴你：怎麼買、怎麼賣、賺賠多少、最慘跌多少。';
   if (name === 'markets') renderMarkets();
   history.replaceState(null, '', `#${name}`);
 }
@@ -396,6 +398,7 @@ async function loadConfig() {
   } catch { toast('儲存的設定無法讀取'); }
 }
 function initContent() {
+  $('#help-button').title = '新手回測教學'; $('#help-button').setAttribute('aria-label', '新手回測教學');
   $('#strategy').insertAdjacentHTML('beforeend', '<option value="combination">✓ 條件組合回測（勾選條件，全部符合）</option>');
   $('#selected-symbols').insertAdjacentHTML('afterend', '<details class="symbol-picker"><summary>勾選多個幣種（最多 6 個，可用上方搜尋）</summary><div id="symbol-checkboxes"></div></details>');
   $('#plain-summary').insertAdjacentHTML('beforebegin', '<section id="combination-results" class="panel hidden" aria-label="條件組合逐幣結果"></section>');
@@ -421,11 +424,32 @@ function initContent() {
   $('#equity-chart').innerHTML = '<div class="chart-empty">正在準備研究資料…</div>';
   initRules(); renderSymbols(); renderDetail();
 }
+async function applyTutorialPreset(preset) {
+  if (state.running || state.applyingTutorial) return toast('請等目前回測完成，再套用練習設定');
+  if (!['long', 'short', 'cross'].includes(preset)) return;
+  state.applyingTutorial = true;
+  try {
+    $('#source').value = 'demo';
+    await switchMarket(preset === 'long' ? 'spot' : 'futures');
+    state.symbols = ['BTCUSDT', 'ETHUSDT']; state.quote = 'USDT'; $('#symbol-search').value = ''; renderSymbols();
+    $('#strategy').value = 'combination'; $('#capital').value = '10000'; $('#leverage').value = '1';
+    $('#allocation').value = '95'; $('#slippage').value = '0.05'; $('#maintenance').value = '0.5';
+    $('#combo-stop').value = '2'; $('#combo-target').value = '4'; $('#combo-overbought').value = '70'; $('#combo-oversold').value = '30';
+    const conditions = preset === 'long' ? [{ interval: '4h', type: 'rsiOversold', threshold: 30 }] : preset === 'short' ? [{ interval: '1d', type: 'rsiOverbought', threshold: 70 }, { interval: '4h', type: 'macdDeath' }] : [{ interval: '4h', type: 'emaDeath' }, { interval: '4h', type: 'macdDeath' }];
+    initCombination({ side: preset === 'long' ? 'long' : 'short', conditions });
+    const now = new Date(), end = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    $('#end-date').value = date(end); $('#start-date').value = date(end - 90 * 86400000);
+    strategyChanged(); view('workbench');
+    notice('已套用教學練習：BTCUSDT、ETHUSDT，最近 90 天合成示範資料。請按「開始回測」，完成後查看逐幣結果。示範績效不是幣安真實行情。');
+    $('#strategy').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } finally { state.applyingTutorial = false; }
+}
 document.addEventListener('click', event => {
   const el = event.target.closest('button, a.brand'); if (!el) return;
   if (el.dataset.view) view(el.dataset.view);
+  if (el.dataset.tutorialPreset) applyTutorialPreset(el.dataset.tutorialPreset).catch(e => notice(e.message));
   if (el.matches('.brand')) view('workbench');
-  if (el.id === 'help-button') view('method');
+  if (el.id === 'help-button') view('tutorial');
   if (el.dataset.market) switchMarket(el.dataset.market);
   if (el.id === 'connect-live' || el.id === 'use-demo') { if (state.running) return; $('#source').value = el.id === 'connect-live' ? 'live' : 'demo'; sourceChanged(); }
   if (el.dataset.removeSymbol) { if (state.running) return; state.symbols = state.symbols.filter(s => s !== el.dataset.removeSymbol); renderSymbols(); markDirty(); }
@@ -463,6 +487,7 @@ $('#symbol-search').addEventListener('input', renderSymbolCheckboxes);
 $('#config-form').addEventListener('input', markDirty);
 $('#config-form').addEventListener('submit', event => { event.preventDefault(); runBacktest(); });
 initContent();
-const initialView = location.hash.slice(1); if (['workbench', 'markets', 'strategies', 'method'].includes(initialView)) view(initialView);
+const initialView = location.hash.slice(1); if (['workbench', 'tutorial', 'markets', 'strategies', 'method'].includes(initialView)) view(initialView);
+else if (initialView.startsWith('tutorial-') && document.getElementById(initialView)) { view('tutorial'); document.getElementById(initialView).scrollIntoView(); }
 await refreshMarkets();
 runBacktest();
