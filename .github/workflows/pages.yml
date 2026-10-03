@@ -23,7 +23,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -73,4 +73,4 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-# symbol-picker-deploy-refresh-v2
+# symbol-picker-deploy-refresh-v3
