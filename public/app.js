@@ -69,7 +69,7 @@ function markDirty() {
 }
 function renderSymbols() {
   $('#selected-symbols').innerHTML = state.symbols.map(s => `<span class="symbol-chip">${esc(s)}<button type="button" data-remove-symbol="${esc(s)}" aria-label="移除 ${esc(s)}">×</button></span>`).join('');
-  $('.quote-label').forEach(el => { el.textContent = state.quote; });
+  document.querySelectorAll('.quote-label').forEach(el => { el.textContent = state.quote; });
   if ($('#symbol-picker-count')) $('#symbol-picker-count').textContent = `已選 ${state.symbols.length} / ${MAX_SYMBOLS}`;
   if ($('#symbol-picker-count-modal')) $('#symbol-picker-count-modal').textContent = `已選 ${state.symbols.length} / ${MAX_SYMBOLS}`;
   renderSymbolCheckboxes();
