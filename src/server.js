@@ -6,7 +6,7 @@ import { getMarkets, getHistory, parseHistoryQuery, DataError } from './binance.
 import { demoMarkets, demoHistory } from './demo.js';
 import { createMarketStream } from './stream.js';
 const root = fileURLToPath(new URL('../', import.meta.url));
-const publicModules = new Set(['backtest.js', 'indicators.js', 'strategies.js', 'demo.js', 'binance.js']);
+const publicModules = new Set(['backtest.js', 'combination.js', 'indicators.js', 'strategies.js', 'demo.js', 'binance.js']);
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 export function createApp({ socketFactory } = {}) {
   const streams = createMarketStream(socketFactory);
@@ -38,7 +38,7 @@ export function createApp({ socketFactory } = {}) {
       const isModule = name.startsWith('/src/') && publicModules.has(name.slice(5));
       const base = resolve(root, isModule ? 'src' : 'public');
       const path = resolve(base, isModule ? name.slice(5) : name === '/' ? 'index.html' : `.${name}`);
-      if (!path.startsWith(base + '/') || !mime[extname(path)]) return json({ error: '找不到檔案' }, 404);
+      if (!path.startsWith(base + (process.platform === 'win32' ? '\\' : '/')) || !mime[extname(path)]) return json({ error: '找不到檔案' }, 404);
       const data = await readFile(path);
       res.writeHead(200, { 'Content-Type': mime[extname(path)], 'Cache-Control': 'no-cache' }); res.end(data);
     } catch (e) {

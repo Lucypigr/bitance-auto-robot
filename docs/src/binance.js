@@ -60,8 +60,10 @@ export function parseHistoryQuery(params) {
   const step = intervals[interval];
   const endTime = Math.min(requestedEnd, Math.floor(Date.now() / step) * step);
   if (!params.has('start') || !params.has('end') || !Number.isSafeInteger(startTime) || !Number.isSafeInteger(requestedEnd) || startTime < Date.UTC(2017, 0, 1) || endTime <= startTime || (endTime - startTime) / step > 50000) throw new DataError('日期範圍無效：最多 50,000 根已收盤 K 線', 400);
-  if (market === 'futures' && step > 3600000) throw new DataError('合約支援 5m、15m、1h 週期', 400);
-  return { market, symbol, interval, startTime, endTime };
+  const signalOnly = params.get('purpose') === 'signals';
+  if (signalOnly && !['15m', '1h', '4h', '1d'].includes(interval)) throw new DataError('條件週期無效', 400);
+  if (market === 'futures' && step > 3600000 && !signalOnly) throw new DataError('合約支援 5m、15m、1h 週期', 400);
+  return { market, symbol, interval, startTime, endTime, ...(signalOnly ? { signalOnly } : {}) };
 }
 async function paginatedCandles(market, path, symbol, interval, startTime, endTime, signal) {
   let cursor = startTime;
@@ -80,7 +82,7 @@ async function paginatedCandles(market, path, symbol, interval, startTime, endTi
   return rows;
 }
 export async function getHistory(query, signal) {
-  const { market, symbol, interval, startTime, endTime } = query;
+  const { market, symbol, interval, startTime, endTime, signalOnly = false } = query;
   return cached(`history:${JSON.stringify(query)}`, 120000, async () => {
     const listed = (await getMarkets(market, signal)).markets.find(m => m.symbol === symbol);
     if (!listed) throw new DataError('此交易對不在目前可交易清單', 400);
@@ -89,7 +91,7 @@ export async function getHistory(query, signal) {
     const candles = await paginatedCandles(market, `${prefix}/klines`, symbol, interval, warmStart, endTime, signal);
     if (!candles.length) throw new DataError('指定期間沒有 K 線資料', 422);
     const funding = [];
-    if (market === 'futures') {
+    if (market === 'futures' && !signalOnly) {
       const marks = await paginatedCandles(market, '/fapi/v1/markPriceKlines', symbol, interval, warmStart, endTime, signal);
       const byTime = new Map(marks.map(c => [c.time, c]));
       for (const c of candles) {

@@ -1,5 +1,6 @@
 import { computeIndicators } from './indicators.js';
 import { candidates, signalAt } from './strategies.js';
+import { analyzeCombination } from './combination.js';
 export const intervals = { '5m': 300000, '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000 };
 const DAY = 86400000;
 export function validateOptions(o) {
@@ -172,6 +173,7 @@ function score(stats) {
   return stats.sharpe - Math.abs(stats.maxDrawdown) / 25 + Math.min(stats.trades, 30) / 100;
 }
 export function analyze(raw, options, onProgress = () => {}) {
+  if (options.strategy === 'combination') return analyzeCombination(raw, options, onProgress);
   validateOptions(options);
   if (!raw.length || raw.length > 6) throw new Error('每次可比較 1 至 6 個交易對');
   if (new Set(raw.map(d => d.symbol)).size !== raw.length) throw new Error('交易對不得重複');

@@ -47,6 +47,14 @@
             <div class="field-grid"><label>K 線時間<select name="interval" id="interval"><option value="5m">每 5 分鐘</option><option value="15m">每 15 分鐘</option><option value="1h" selected>每 1 小時</option><option value="4h">每 4 小時</option><option value="1d">每天</option></select></label><label>假設投入 <span class="quote-label">USDT</span><input name="capital" id="capital" type="number" min="100" max="1000000000" step="100" value="10000" required></label></div>
             <div class="field-grid"><label>從哪一天開始<input name="start" id="start-date" type="date" required></label><label>測到哪一天 <span class="field-hint">不含當日</span><input name="end" id="end-date" type="date" required></label></div>
             <label>④ 想測哪種交易方法<select name="strategy" id="strategy"><option value="auto">我不知道，幫我把所有方法都比較</option></select></label>
+            <div id="combination-builder" class="hidden">
+              <h4>條件組合回測</h4><p class="form-hint">在各週期勾選條件，全部符合（AND）才進場。成交週期自動使用最小勾選週期；合約至多 1 小時。</p>
+              <label>交易方向<select name="combinationSide" id="combination-side"><option value="long">做多（買入後等待上漲）</option><option value="short">做空（合約，等待下跌）</option></select></label>
+              <div class="field-grid"><label>RSI 超買 ≥<input id="combo-overbought" name="comboOverbought" type="number" min="0" max="100" value="70" required></label><label>RSI 超賣 ≤<input id="combo-oversold" name="comboOversold" type="number" min="0" max="100" value="30" required></label></div>
+              <div id="combination-conditions"></div><p id="combination-description" class="form-hint"></p>
+              <div class="field-grid"><label>停損 %<input id="combo-stop" name="comboStop" type="number" min="0.1" max="50" step="0.1" value="2" required></label><label>停利 %<input id="combo-target" name="comboTarget" type="number" min="0.1" max="200" step="0.1" value="4" required></label></div>
+              <p class="form-hint">每幣最多一個部位；依停損、停利或期末平倉出場。做空的停損在上方、停利在下方。成本可在進階設定調整。</p>
+            </div>
             <p id="strategy-hint" class="form-hint">最適合第一次使用：系統會把所有方法都跑一次，再把結果並排給你看。</p>
             <div id="custom-builder" class="hidden"><p class="form-hint">同組規則採 AND；留空表示不啟用。比較值可填數字或指標名稱。</p><div id="rule-groups"></div></div>
             <details class="advanced-settings">

@@ -1,6 +1,7 @@
 import { strategyCatalog } from './src/strategies.js';
 import { indicatorCatalog } from './src/indicators.js';
 import { intervals, validateOptions } from './src/backtest.js';
+import { conditionCatalog, combinationIntervals, executionInterval, validateCombination } from './src/combination.js';
 import { equityChart, drawdownChart } from './charts.js';
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -29,6 +30,7 @@ const beginnerStrategyGuide = {
   custom: { name: '我的自訂規則', intro: '使用你自己設定的進場與出場條件。' }
 };
 function beginnerStrategy(strategy) {
+  if (strategy?.id === 'combination') return { name: '條件組合回測', technical: '跨週期 AND', indicators: '只用已收盤 K 線', rule: strategy.combination.conditions.map(c => `${c.interval} ${conditionCatalog[c.type]}${c.type.startsWith('rsi') ? ` ${c.threshold}` : ''}`).join(' ＋ ') + `，全部符合才${strategy.combination.side === 'long' ? '做多' : '做空'}；停損、停利或期末平倉。` };
   const key = strategy?.id?.split(':')[0] ?? 'custom';
   const p = strategy?.params ?? {};
   const base = beginnerStrategyGuide[key] ?? beginnerStrategyGuide.custom;
@@ -58,10 +60,21 @@ function view(name) {
   if (name === 'markets') renderMarkets();
   history.replaceState(null, '', `#${name}`);
 }
-function markDirty() { if (state.result) $('#report-state').textContent = `${state.result.metadata.sources[0].source === 'synthetic' ? '示範' : '幣安'}結果 · 設定已變更，請重新回測`; }
+function markDirty() {
+  if (state.result) $('#report-state').textContent = `${state.result.metadata.sources[0].source === 'synthetic' ? '示範' : '幣安'}結果 · 設定已變更，請重新回測`;
+  if (state.result?.metadata.mode === 'combination' && $('#all-positive')) { $('#all-positive').textContent = '設定已變更，請重新回測；下表為上次結果'; $('#all-positive').className = 'combo-verdict amber'; }
+}
 function renderSymbols() {
   $('#selected-symbols').innerHTML = state.symbols.map(s => `<span class="symbol-chip">${esc(s)}<button type="button" data-remove-symbol="${esc(s)}" aria-label="移除 ${esc(s)}">×</button></span>`).join('');
   $$('.quote-label').forEach(el => { el.textContent = state.quote; });
+  renderSymbolCheckboxes();
+}
+function renderSymbolCheckboxes() {
+  const container = $('#symbol-checkboxes');
+  if (!container) return;
+  const query = $('#symbol-search').value.trim().toUpperCase();
+  const list = state.markets.filter(m => (query ? m.symbol.includes(query) : m.quote === state.quote));
+  container.innerHTML = list.slice(0, 40).map(m => `<label class="checkbox-label"><input type="checkbox" data-check-symbol="${esc(m.symbol)}" aria-label="勾選 ${esc(m.symbol)}" ${state.symbols.includes(m.symbol) ? 'checked' : ''} ${state.running ? 'disabled' : ''}><span>${esc(m.symbol)}</span></label>`).join('') || '<span class="form-hint">沒有符合搜尋的幣種</span>';
 }
 function addSymbol(symbol) {
   if (state.running) return;
@@ -108,7 +121,7 @@ async function refreshMarkets(quiet = false) {
     const prior = $('#quote-filter').value;
     $('#quote-filter').innerHTML = '<option value="">全部報價幣</option>' + [...new Set(state.markets.map(m => m.quote))].sort().map(q => `<option value="${esc(q)}">${esc(q)}</option>`).join('');
     $('#quote-filter').value = [...$('#quote-filter').options].some(o => o.value === prior) ? prior : '';
-    renderTickers(); renderMarkets();
+    renderTickers(); renderMarkets(); renderSymbolCheckboxes();
     if (source === 'demo') setBadge('示範資料', 'demo');
     else { setBadge(state.ws?.readyState === EventSource.OPEN && Date.now() - websocketTime < 30000 ? '即時串流連線中' : 'REST 行情 · 15 秒'); if (!state.ws) connectWebSocket(); }
     if (!quiet) notice();
@@ -160,6 +173,7 @@ async function switchMarket(market) {
   [...$('#interval').options].forEach(o => { o.disabled = market === 'futures' && intervals[o.value] > 3600000; });
   if (market === 'futures' && intervals[$('#interval').value] > 3600000) $('#interval').value = '1h';
   $('#fee').value = market === 'futures' ? '.04' : '.10';
+  updateCombinationDescription();
   await sourceChanged();
 }
 const ruleOptions = Object.entries(indicatorCatalog).map(([key, name]) => `<option value="${key}">${esc(name)}</option>`).join('');
@@ -181,9 +195,24 @@ function readRules() {
     return { left: row.querySelector('.rule-left').value, op: row.querySelector('.rule-op').value, right: raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : raw };
   })]));
 }
+function readCombination() {
+  return { side: $('#combination-side').value, conditions: $$('[data-combo-type]:checked').map(el => ({ interval: el.dataset.comboInterval, type: el.dataset.comboType, ...(el.dataset.comboType.startsWith('rsi') ? { threshold: Number($(el.dataset.comboType === 'rsiOverbought' ? '#combo-overbought' : '#combo-oversold').value) } : {}) })) };
+}
+function initCombination(saved) {
+  $('#combination-conditions').innerHTML = combinationIntervals.map(interval => `<fieldset class="combo-timeframe"><legend>${interval} ${ { '15m': '15 分鐘', '1h': '1 小時', '4h': '4 小時', '1d': '日線' }[interval]}</legend>${Object.entries(conditionCatalog).map(([type, label]) => `<label class="checkbox-label"><input type="checkbox" data-combo-interval="${interval}" data-combo-type="${type}" aria-label="${interval} ${esc(label)}" ${(saved ? saved.conditions.some(c => c.interval === interval && c.type === type) : interval === '4h' && type === 'rsiOversold') ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('')}</fieldset>`).join('');
+  if (saved) $('#combination-side').value = saved.side;
+  updateCombinationDescription();
+}
+function updateCombinationDescription() {
+  const combination = readCombination();
+  $('#combination-description').textContent = combination.conditions.length ? `已勾選 ${combination.conditions.length} 個 AND 條件。成交檢查週期：${executionInterval(combination, state.market)}。交叉只在發生那根收盤時成立。` : '請至少勾選一個條件。';
+}
 function strategyChanged() {
   const id = $('#strategy').value;
   $('#custom-builder').classList.toggle('hidden', id !== 'custom');
+  $('#combination-builder').classList.toggle('hidden', id !== 'combination');
+  $('#interval').disabled = id === 'combination';
+  if (id === 'combination') { $('#strategy-hint').textContent = '依你勾選的條件測整段期間，不自動選策略。每個幣種都會列出淨報酬、勝率、交易次數、最大回撤。'; updateCombinationDescription(); markDirty(); return; }
   if (id === 'auto') $('#strategy-hint').textContent = '最適合第一次使用：系統會把所有方法都跑一次，再把結果並排給你看。';
   else if (id === 'custom') $('#strategy-hint').textContent = '你可以自己設定買進與賣出條件；第一次使用可先跳過。';
   else { const s = strategyCatalog.find(s => s.id === id); const plain = beginnerStrategy(s); $('#strategy-hint').textContent = `${plain.intro} 具體規則：${plain.rule}`; }
@@ -194,6 +223,13 @@ function readOptions() {
     optimize: $('#optimize').checked, leverage: state.market === 'spot' ? 1 : Number($('#leverage').value), maintenance: Number($('#maintenance').value) / 100,
     startTime: Date.parse($('#start-date').value + 'T00:00:00Z'), endTime: Date.parse($('#end-date').value + 'T00:00:00Z'), customRules: readRules() };
   for (const key of ['fee', 'slippage', 'allocation', 'stopLoss', 'takeProfit', 'trailingStop']) o[key] = Number($(`#${key}`).value) / 100;
+  if (o.strategy === 'combination') {
+    o.combination = readCombination(); validateCombination(o.combination);
+    o.interval = executionInterval(o.combination, o.market); o.optimize = false;
+    o.stopLoss = Number($('#combo-stop').value) / 100; o.takeProfit = Number($('#combo-target').value) / 100; o.trailingStop = 0;
+    if (o.market === 'spot' && o.combination.side === 'short') throw new Error('做空請先切換至「永續合約」');
+    if (!(o.stopLoss > 0) || !(o.takeProfit > 0)) throw new Error('條件組合回測的停損與停利必須大於 0');
+  }
   validateOptions(o);
   if (!state.symbols.length) throw new Error('請至少選擇一個交易對');
   if ((o.endTime - o.startTime) / intervals[o.interval] * state.symbols.length > 100000) throw new Error('投資組合合計最多 100,000 根 K 線，請縮短期間或減少交易對');
@@ -205,6 +241,7 @@ function busy(active) {
   $$('#config-form input, #config-form select, #config-form button').forEach(el => { el.disabled = active; });
   $('#cancel-button').disabled = false; $('#cancel-button').classList.toggle('hidden', !active);
   $('#run-button').innerHTML = active ? '<span>◌</span> 正在用歷史資料模擬買賣… <span>↗</span>' : '<span>▷</span> 開始回測 <span>↗</span>';
+  if (!active) $('#interval').disabled = $('#strategy').value === 'combination';
 }
 function progress(value, message) { $('#progress>span').textContent = message; $('#progress i').style.width = `${value}%`; }
 async function runBacktest() {
@@ -228,6 +265,23 @@ async function runBacktest() {
         data = await res.json(); if (!res.ok) throw new Error(data.error);
       }
       if (controller.signal.aborted) throw new DOMException('已停止', 'AbortError');
+      if (options.strategy === 'combination') {
+        data.timeframes = {};
+        for (const interval of new Set(options.combination.conditions.map(c => c.interval))) {
+          if (interval === options.interval) continue;
+          progress(3 + 12 * i / symbols.length, `下載 ${symbol} 的 ${interval} 已收盤條件資料與暖機…`);
+          const query = { market: options.market, symbol, interval, startTime: options.startTime, endTime: options.endTime, signalOnly: true };
+          let frame;
+          if (staticMode) frame = source === 'demo' ? staticData[1].demoHistory(symbol, interval, options.startTime, options.endTime, options.market) : await staticData[0].getHistory(query, controller.signal);
+          else {
+            const params = new URLSearchParams({ market: options.market, symbol, interval, start: options.startTime, end: options.endTime, demo: source === 'demo' ? '1' : '0', purpose: 'signals' });
+            const response = await fetch(`/api/history?${params}`, { signal: controller.signal });
+            frame = await response.json(); if (!response.ok) throw new Error(frame.error);
+          }
+          if (controller.signal.aborted) throw new DOMException('已停止', 'AbortError');
+          data.timeframes[interval] = frame.candles;
+        }
+      }
       datasets.push(data);
     }
     if (new Set(datasets.map(d => d.quote)).size !== 1) throw new Error('多幣種回測必須使用同一報價幣');
@@ -244,10 +298,10 @@ async function runBacktest() {
       worker.postMessage({ datasets, options });
     });
     result.metadata.quote = state.quote;
-    state.datasets = datasets; state.result = result; state.range = 'test'; state.tradePage = 0;
+    state.datasets = datasets; state.result = result; state.range = options.strategy === 'combination' ? 'full' : 'test'; state.tradePage = 0;
     renderResults(); progress(100, `${result.metadata.bars.toLocaleString()} 根 K 線 · ${result.metadata.candidates} 組候選 · 已完成`);
     if (result.metadata.commonPeriodTrimmed) notice('部分交易對歷史不足，回測已使用各交易對共同可用、完成暖機後的期間。請以圖表日期為準。');
-    toast('回測完成，已產生樣本外與滾動驗證報告');
+    toast(options.strategy === 'combination' ? '條件組合回測完成，請查看逐幣結果' : '回測完成，已產生樣本外與滾動驗證報告');
   } catch (e) {
     if (e.name === 'AbortError') progress(0, '本次回測已停止');
     else { notice(e.message); progress(0, '回測未完成，請檢查上述訊息'); }
@@ -259,6 +313,16 @@ function currentReport() { return state.result?.[state.range]; }
 function renderResults() {
   if (!state.result) return;
   const result = state.result, report = currentReport(), s = report.stats, source = result.metadata.sources[0].source;
+  const combo = result.metadata.mode === 'combination';
+  $('#combination-results').classList.toggle('hidden', !combo);
+  $('.ranking-panel').classList.toggle('hidden', combo);
+  $('#range-selector').classList.toggle('hidden', combo);
+  $$('[data-tab="walk"], [data-tab="indicators"]').forEach(el => el.classList.toggle('hidden', combo));
+  if (combo) {
+    if (['walk', 'indicators'].includes(state.tab)) state.tab = 'stats';
+    const profitable = report.assets.filter(a => a.totalReturn > 0 && a.trades > 0).length;
+    $('#combination-results').innerHTML = `<div class="panel-heading"><div><h3>所有勾選幣種是否全部正報酬</h3><p>完整共同期間 · 已扣手續費、滑價與合約資金費率</p></div></div><p id="all-positive" class="combo-verdict ${report.allPositive ? 'positive' : 'negative'}">${report.allPositive ? '是，全部正報酬' : '否，並非全部正報酬'}（${profitable} / ${report.assets.length}）</p><div class="table-scroll"><table><thead><tr><th>幣種</th><th>淨報酬</th><th>勝率</th><th>交易次數</th><th>最大回撤</th><th>結果</th></tr></thead><tbody id="combination-assets">${report.assets.map(a => `<tr><td>${esc(a.symbol)}</td><td class="mono ${color(a.totalReturn)}">${pct(a.totalReturn)}</td><td class="mono">${a.trades ? `${num(a.winRate)}%` : '—'}</td><td>${a.trades}</td><td class="mono negative">${num(a.maxDrawdown)}%</td><td>${!a.trades ? '無交易' : a.totalReturn > 0 ? '正報酬' : a.totalReturn < 0 ? '虧損' : '零報酬'}</td></tr>`).join('')}</tbody></table></div><p class="detail-note">零報酬、無交易不算正報酬。所有幣種均有完整結果才會顯示「是」。示範資料僅供練習；歷史結果不代表未來。</p>`;
+  }
   const benchmarkReturn = (report.benchmark.at(-1).value / result.options.capital - 1) * 100;
   $('#report-state').textContent = `${source === 'synthetic' ? '合成示範結果' : '幣安資料'} · ${result.options.market === 'spot' ? '現貨' : `${result.options.leverage}× 合約`} · ${result.metadata.symbols.join(' / ')}`;
   const cards = [
@@ -271,6 +335,7 @@ function renderResults() {
   const plain = beginnerStrategy(result.best);
   $('#plain-summary').innerHTML = `<div class="plain-strategy"><span class="plain-kicker">這次系統選到的交易方法</span><h3>${esc(plain.name)}</h3><small>原技術名稱：${esc(plain.technical)} · ${esc(plain.indicators)}</small><p><b>怎麼買、怎麼賣：</b>${esc(plain.rule)}</p></div><div class="plain-result"><strong class="${color(s.totalReturn)}">${s.totalReturn >= 0 ? '這次回測有獲利' : '這次回測是虧損'} ${pct(s.totalReturn)}</strong><span>假設 ${num(result.options.capital)} ${result.metadata.quote} → ${num(s.endValue)} ${result.metadata.quote}</span><span>過程中從高點最多曾回落 ${num(s.maxDrawdown)}%</span><em>這只是歷史資料模擬，不代表之後一定會有相同結果。</em></div>`;
   $('#chart-caption').textContent = `${plain.name} · ${source === 'synthetic' ? '練習用示範資料' : 'Binance 歷史資料'} · ${state.range === 'test' ? '最後 30% 資料另外測試' : '整段歷史資料'}`;
+  if (combo) $('#plain-summary .plain-kicker').textContent = '你勾選的 AND 進場條件';
   $('#chart-unit').textContent = result.metadata.quote;
   $('#period-label').textContent = `${date(report.equity[0].time)} — ${date(report.equity.at(-1).time)} UTC`;
   $('#drawdown-max').textContent = `${num(s.maxDrawdown)}%`;
@@ -290,7 +355,7 @@ function renderDetail() {
   $$('.detail-tabs button').forEach(b => { b.classList.toggle('active', b.dataset.tab === state.tab); b.setAttribute('aria-selected', String(b.dataset.tab === state.tab)); });
   if (state.tab === 'stats') {
     const data = [['期末淨值', num(s.endValue), r.metadata.quote], ['淨利', num(s.netProfit), '已扣成本與資金費率'], ['年化報酬 CAGR', s.cagr === null ? '—' : `${num(s.cagr)}%`, '不足 30 天不年化'], ['Sortino 比率', num(s.sortino), '日頻下行風險'], ['Calmar 比率', num(s.calmar), 'CAGR / 最大回撤'], ['獲利因子', s.noLosses ? '無虧損樣本' : num(s.profitFactor), '獲利總額 / 虧損總額'], ['每筆期望值', num(s.expectancy), r.metadata.quote], ['平均盈利', num(s.avgWin), r.metadata.quote], ['平均虧損', num(s.avgLoss), r.metadata.quote], ['最長連敗', String(s.maxLossStreak), '依平倉順序'], ['總手續費', num(s.fees), '雙邊成交收費'], ['滑價成本', num(s.slippageCost), '已含於成交價，未重複扣除'], ['淨資金費率支出', num(s.funding), '負數代表收取'], ['平均持倉', `${num(s.avgHoldingHours, 1)} h`, '小時'], ['市場曝險時間', `${num(s.exposure, 1)}%`, `${s.liquidations} 次估計清算`]];
-    const assets = `<div class="table-scroll"><table><thead><tr><th>獨立資金帳戶</th><th>淨報酬</th><th>最大回撤</th><th>Sharpe</th><th>交易數</th><th>手續費</th><th>淨資金費率支出</th></tr></thead><tbody>${report.assets.map(a => `<tr><td>${esc(a.symbol)}</td><td class="mono ${color(a.totalReturn)}">${pct(a.totalReturn)}</td><td class="mono negative">${num(a.maxDrawdown)}%</td><td class="mono">${num(a.sharpe)}</td><td>${a.trades}</td><td class="mono">${num(a.fees)}</td><td class="mono">${num(a.funding)}</td></tr>`).join('')}</tbody></table></div>`;
+    const assets = `<div class="table-scroll"><table><thead><tr><th>獨立資金帳戶</th><th>淨報酬</th><th>勝率</th><th>最大回撤</th><th>Sharpe</th><th>交易數</th><th>手續費</th><th>淨資金費率支出</th></tr></thead><tbody>${report.assets.map(a => `<tr><td>${esc(a.symbol)}</td><td class="mono ${color(a.totalReturn)}">${pct(a.totalReturn)}</td><td class="mono">${a.trades ? `${num(a.winRate)}%` : '—'}</td><td class="mono negative">${num(a.maxDrawdown)}%</td><td class="mono">${num(a.sharpe)}</td><td>${a.trades}</td><td class="mono">${num(a.fees)}</td><td class="mono">${num(a.funding)}</td></tr>`).join('')}</tbody></table></div>`;
     $('#detail-content').innerHTML = `<div class="stats-grid">${data.map(([label, value, hint]) => `<div class="detail-stat"><label>${label}</label><strong>${value}</strong><small>${esc(hint)}</small></div>`).join('')}</div>${assets}<div class="detail-note">${r.metadata.warnings.map(esc).join(' ')} ${s.trades < 20 ? '本期間交易少於 20 筆，統計證據有限。' : ''}</div>`;
   } else if (state.tab === 'trades') renderTrades();
   else if (state.tab === 'monthly') $('#detail-content').innerHTML = `<div class="heatmap">${s.monthly.map(m => `<div class="month-cell ${m.return < 0 ? 'loss' : ''}"><small>${m.month}</small><strong>${pct(m.return)}</strong></div>`).join('')}</div><div class="detail-note">依 UTC 月末淨值計算，包含未實現損益；首末月份可能不完整。</div>`;
@@ -316,7 +381,7 @@ function exportTrades() {
 }
 function saveConfig() {
   const values = Object.fromEntries(new FormData($('#config-form')));
-  const config = { version: 1, market: state.market, symbols: state.symbols, quote: state.quote, values, optimize: $('#optimize').checked, rules: readRules() };
+  const config = { version: 1, market: state.market, symbols: state.symbols, quote: state.quote, values, optimize: $('#optimize').checked, rules: readRules(), combination: readCombination() };
   try { localStorage.setItem('quantlab-config-v1', JSON.stringify(config)); toast('設定已儲存在此瀏覽器'); } catch { toast('此瀏覽器不允許本機儲存'); }
 }
 async function loadConfig() {
@@ -327,10 +392,14 @@ async function loadConfig() {
     await switchMarket(config.market);
     for (const [name, value] of Object.entries(config.values)) { const element = $('#config-form').elements.namedItem(name); if (element && element.type !== 'checkbox') element.value = value; }
     state.symbols = config.symbols.slice(0, 6); state.quote = config.quote; $('#optimize').checked = config.optimize;
-    initRules(config.rules); strategyChanged(); renderSymbols(); await sourceChanged(); toast('已載入設定，執行回測即可更新結果');
+    initRules(config.rules); initCombination(config.combination); strategyChanged(); renderSymbols(); await sourceChanged(); toast('已載入設定，執行回測即可更新結果');
   } catch { toast('儲存的設定無法讀取'); }
 }
 function initContent() {
+  $('#strategy').insertAdjacentHTML('beforeend', '<option value="combination">✓ 條件組合回測（勾選條件，全部符合）</option>');
+  $('#selected-symbols').insertAdjacentHTML('afterend', '<details class="symbol-picker"><summary>勾選多個幣種（最多 6 個，可用上方搜尋）</summary><div id="symbol-checkboxes"></div></details>');
+  $('#plain-summary').insertAdjacentHTML('beforebegin', '<section id="combination-results" class="panel hidden" aria-label="條件組合逐幣結果"></section>');
+  initCombination();
   $('#strategy').insertAdjacentHTML('beforeend', strategyCatalog.map(s => { const p = beginnerStrategy(s); return `<option value="${s.id}">${p.name}（${s.name}）</option>`; }).join('') + '<option value="custom">＋ 我自己設定買賣條件</option>');
   $('#strategy-cards').innerHTML = strategyCatalog.map((s, i) => { const p = beginnerStrategy(s); return `<article class="strategy-card"><div class="strategy-number">方法 ${String(i + 1).padStart(2, '0')}</div><h3>${esc(p.name)}</h3><div class="indicator-label">技術名稱：${esc(s.name)} · ${esc(s.indicators)}</div><p><b>簡單說：</b>${esc(p.intro)}</p><p><b>實際規則：</b>${esc(p.rule)}</p><button class="secondary" data-use-strategy="${s.id}">用這個方法回測 →</button></article>`; }).join('');
   $('#indicator-tags').innerHTML = Object.entries(indicatorCatalog).map(([key, label]) => `<span class="indicator-tag" title="規則代碼：${key}">${label}</span>`).join('');
@@ -376,6 +445,13 @@ document.addEventListener('click', event => {
   if (el.id === 'refresh-markets') refreshMarkets();
 });
 document.addEventListener('change', event => {
+  if (event.target.dataset.checkSymbol) {
+    if (state.running) return;
+    if (event.target.checked) addSymbol(event.target.dataset.checkSymbol);
+    else { state.symbols = state.symbols.filter(s => s !== event.target.dataset.checkSymbol); renderSymbols(); markDirty(); }
+    renderSymbolCheckboxes();
+  }
+  if (event.target.dataset.comboType || ['combination-side', 'combo-overbought', 'combo-oversold'].includes(event.target.id)) { updateCombinationDescription(); markDirty(); }
   if (event.target.id === 'source') sourceChanged();
   if (event.target.id === 'strategy') strategyChanged();
   if (event.target.id === 'symbol-search') { const symbol = event.target.value.trim().toUpperCase(); addSymbol(symbol); event.target.value = ''; }
@@ -383,6 +459,7 @@ document.addEventListener('change', event => {
   if (event.target.id === 'trade-side') { state.tradeSide = event.target.value; state.tradePage = 0; renderTrades(); }
 });
 $('#market-search').addEventListener('input', () => { state.marketPage = 0; renderMarkets(); });
+$('#symbol-search').addEventListener('input', renderSymbolCheckboxes);
 $('#config-form').addEventListener('input', markDirty);
 $('#config-form').addEventListener('submit', event => { event.preventDefault(); runBacktest(); });
 initContent();

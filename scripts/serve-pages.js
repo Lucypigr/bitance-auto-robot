@@ -10,7 +10,7 @@ createServer(async (req, res) => {
     if (!url.pathname.startsWith(prefix)) { res.writeHead(404); return res.end(); }
     const name = decodeURIComponent(url.pathname.slice(prefix.length)) || 'index.html';
     const path = resolve(base, name);
-    if (!path.startsWith(base + '/') || !mime[extname(path)]) { res.writeHead(404); return res.end(); }
+    if (!path.startsWith(base + (process.platform === 'win32' ? '\\' : '/')) || !mime[extname(path)]) { res.writeHead(404); return res.end(); }
     const body = await readFile(path);
     res.writeHead(200, { 'Content-Type': mime[extname(path)] }); res.end(body);
   } catch { res.writeHead(404); res.end(); }
