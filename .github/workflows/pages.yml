@@ -73,4 +73,4 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-# symbol-picker-deploy-refresh
+# symbol-picker-deploy-refresh-v2
