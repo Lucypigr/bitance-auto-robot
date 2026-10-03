@@ -41,7 +41,7 @@ test('market search and indicator catalogue are functional',async({page})=>{
   await page.locator('[data-view="markets"]').click();await page.locator('#market-search').fill('ETH');
   await expect(page.locator('#markets-body tr')).toHaveCount(1);
   await page.locator('[data-add-symbol="ETHUSDT"]').click();
-  await page.locator('[data-view="workbench"]').click();await expect(page.locator('.symbol-chip')).toHaveCount(2);
+  await page.locator('.nav-item[data-view="workbench"]').click();await expect(page.locator('.symbol-chip')).toHaveCount(2);
   await page.locator('[data-view="strategies"]').click();await expect(page.locator('.strategy-card')).toHaveCount(10);
   await page.locator('[data-use-strategy="macd"]').click();await expect(page.locator('#strategy')).toHaveValue('macd');
 });
