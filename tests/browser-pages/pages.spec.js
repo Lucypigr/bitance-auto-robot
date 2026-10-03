@@ -46,3 +46,22 @@ test('static live data error is explicit and does not relabel demo report',async
   await expect(page.locator('#connection-badge')).toContainText('連線失敗');
   await expect(page.locator('#report-state')).toContainText('示範結果');
 });
+
+test('futures mover shortcut selects top 15 from Binance 24h ranking',async({page})=>{
+  const contracts=Array.from({length:18},(_,i)=>({symbol:`COIN${String(i+1).padStart(2,'0')}USDT`,baseAsset:`COIN${String(i+1).padStart(2,'0')}`,quoteAsset:'USDT',status:'TRADING',contractType:'PERPETUAL'}));
+  await page.route('https://fapi.binance.com/**',async route=>{
+    const url=new URL(route.request().url());
+    if(url.pathname.endsWith('/exchangeInfo')) return route.fulfill({status:200,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify({symbols:contracts})});
+    if(url.pathname.endsWith('/ticker/24hr')) return route.fulfill({status:200,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify(contracts.map((c,i)=>({symbol:c.symbol,lastPrice:String(100+i),priceChangePercent:String(i-9),quoteVolume:String(1000000+i),highPrice:'150',lowPrice:'50'})))});
+    throw new Error(`Unexpected futures path ${url.pathname}`);
+  });
+  await page.routeWebSocket('wss://fstream.binance.com/**',socket=>socket.send('[]'));
+  await page.goto('./');
+  await expect(page.locator('#progress')).toContainText('已完成',{timeout:30000});
+  await page.locator('[data-mover-preset="gainers15"]').click();
+  await expect(page.locator('#source')).toHaveValue('live');
+  await expect(page.locator('[data-market="futures"]')).toHaveClass(/active/);
+  await expect(page.locator('.symbol-chip')).toHaveCount(15,{timeout:15000});
+  await expect(page.locator('.symbol-chip').first()).toContainText('COIN18USDT');
+  await expect(page.locator('#symbol-picker-count')).toContainText('15 / 15');
+});
