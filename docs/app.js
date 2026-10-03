@@ -15,7 +15,8 @@ const date = time => new Date(time).toISOString().slice(0, 10);
 const datetime = time => new Date(time).toISOString().slice(0, 16).replace('T', ' ');
 const compact = v => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(v);
 const price = v => num(v, v < 1 ? 6 : v < 100 ? 3 : 2);
-const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT' };
+const MAX_SYMBOLS = 15;
+const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT', pickingMovers: false };
 const beginnerStrategyGuide = {
   trend: { name: '順著強勢趨勢走', intro: '只在方向很明顯時跟著趨勢進場。' },
   rsi: { name: '超跌後等反彈', intro: '價格短線跌太多時買進，恢復正常後離場。' },
@@ -68,24 +69,56 @@ function markDirty() {
 }
 function renderSymbols() {
   $('#selected-symbols').innerHTML = state.symbols.map(s => `<span class="symbol-chip">${esc(s)}<button type="button" data-remove-symbol="${esc(s)}" aria-label="移除 ${esc(s)}">×</button></span>`).join('');
-  $$('.quote-label').forEach(el => { el.textContent = state.quote; });
+  $('.quote-label').forEach(el => { el.textContent = state.quote; });
+  if ($('#symbol-picker-count')) $('#symbol-picker-count').textContent = `已選 ${state.symbols.length} / ${MAX_SYMBOLS}`;
+  if ($('#symbol-picker-count-modal')) $('#symbol-picker-count-modal').textContent = `已選 ${state.symbols.length} / ${MAX_SYMBOLS}`;
   renderSymbolCheckboxes();
 }
 function renderSymbolCheckboxes() {
   const container = $('#symbol-checkboxes');
   if (!container) return;
-  const query = $('#symbol-search').value.trim().toUpperCase();
-  const list = state.markets.filter(m => (query ? m.symbol.includes(query) : m.quote === state.quote));
-  container.innerHTML = list.slice(0, 40).map(m => `<label class="checkbox-label"><input type="checkbox" data-check-symbol="${esc(m.symbol)}" aria-label="勾選 ${esc(m.symbol)}" ${state.symbols.includes(m.symbol) ? 'checked' : ''} ${state.running ? 'disabled' : ''}><span>${esc(m.symbol)}</span></label>`).join('') || '<span class="form-hint">沒有符合搜尋的幣種</span>';
+  const query = ($('#symbol-picker-search')?.value ?? '').trim().toUpperCase();
+  const list = state.markets.filter(m => (query ? m.symbol.includes(query) || m.base.includes(query) : m.quote === state.quote));
+  container.innerHTML = list.slice(0, 120).map(m => `<label class="symbol-picker-row"><input type="checkbox" data-check-symbol="${esc(m.symbol)}" aria-label="勾選 ${esc(m.symbol)}" ${state.symbols.includes(m.symbol) ? 'checked' : ''} ${state.running ? 'disabled' : ''}><span><strong>${esc(m.base)}</strong><small>/ ${esc(m.quote)}</small></span><em class="${color(m.change)}">${pct(m.change)}</em></label>`).join('') || '<span class="form-hint">沒有符合搜尋的幣種</span>';
 }
 function addSymbol(symbol) {
   if (state.running) return;
   const match = state.markets.find(m => m.symbol === symbol);
   if (!match) return toast('請先載入行情並選擇清單中的交易對');
   if (state.symbols.includes(symbol)) return;
-  if (state.symbols.length >= 6) return toast('每次最多 6 組交易對');
+  if (state.symbols.length >= MAX_SYMBOLS) return toast(`每次最多 ${MAX_SYMBOLS} 組交易對`);
   if (state.symbols.length && match.quote !== state.quote) return toast('投資組合需使用相同報價幣；請先移除既有交易對');
   state.quote = match.quote; state.symbols.push(symbol); renderSymbols(); markDirty();
+}
+async function applyFuturesMoverPreset(kind) {
+  if (state.running || state.pickingMovers) return;
+  const presets = {
+    gainers10: { count: 10, direction: 'up', label: '24h 漲幅前 10' },
+    gainers15: { count: 15, direction: 'up', label: '24h 漲幅前 15' },
+    losers10: { count: 10, direction: 'down', label: '24h 跌幅前 10' },
+    losers15: { count: 15, direction: 'down', label: '24h 跌幅前 15' }
+  };
+  const preset = presets[kind];
+  if (!preset) return;
+  state.pickingMovers = true;
+  try {
+    notice('正在取得 Binance USDT 永續合約 24 小時漲跌幅排行…');
+    $('#source').value = 'live';
+    await switchMarket('futures');
+    const ranked = state.markets.filter(m => m.quote === 'USDT' && Number.isFinite(m.change) && m.price > 0)
+      .sort((a, b) => preset.direction === 'up' ? b.change - a.change : a.change - b.change)
+      .slice(0, preset.count);
+    if (ranked.length < preset.count) throw new Error(`目前只取得 ${ranked.length} 個可用的 USDT 永續合約，無法選滿 ${preset.count} 個`);
+    state.quote = 'USDT';
+    state.symbols = ranked.map(m => m.symbol);
+    $('#symbol-search').value = '';
+    if ($('#symbol-picker-search')) $('#symbol-picker-search').value = '';
+    renderSymbols(); markDirty(); notice();
+    const dialog = $('#symbol-picker-dialog'); if (dialog?.open) dialog.close();
+    toast(`已選取 Binance 合約${preset.label}`);
+  } catch (e) {
+    notice(e.message || '無法取得 Binance 合約漲跌幅排行');
+  } finally { state.pickingMovers = false; }
 }
 function renderTickers() {
   const preferred = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT'].map(s => state.markets.find(m => m.symbol === s)).filter(Boolean);
@@ -234,7 +267,7 @@ function readOptions() {
   }
   validateOptions(o);
   if (!state.symbols.length) throw new Error('請至少選擇一個交易對');
-  if ((o.endTime - o.startTime) / intervals[o.interval] * state.symbols.length > 100000) throw new Error('投資組合合計最多 100,000 根 K 線，請縮短期間或減少交易對');
+  if ((o.endTime - o.startTime) / intervals[o.interval] * state.symbols.length > 250000) throw new Error('投資組合合計最多 250,000 根 K 線，請縮短期間或減少交易對');
   if (!Number.isFinite(o.startTime) || !Number.isFinite(o.endTime) || o.startTime >= o.endTime || (o.endTime - o.startTime) / intervals[o.interval] > 50000) throw new Error('日期範圍無效，最多可回測 50,000 根 K 線');
   return o;
 }
@@ -393,14 +426,14 @@ async function loadConfig() {
     if (!config || config.version !== 1) return toast('尚無已儲存的設定');
     await switchMarket(config.market);
     for (const [name, value] of Object.entries(config.values)) { const element = $('#config-form').elements.namedItem(name); if (element && element.type !== 'checkbox') element.value = value; }
-    state.symbols = config.symbols.slice(0, 6); state.quote = config.quote; $('#optimize').checked = config.optimize;
+    state.symbols = config.symbols.slice(0, MAX_SYMBOLS); state.quote = config.quote; $('#optimize').checked = config.optimize;
     initRules(config.rules); initCombination(config.combination); strategyChanged(); renderSymbols(); await sourceChanged(); toast('已載入設定，執行回測即可更新結果');
   } catch { toast('儲存的設定無法讀取'); }
 }
 function initContent() {
   $('#help-button').title = '新手回測教學'; $('#help-button').setAttribute('aria-label', '新手回測教學');
   $('#strategy').insertAdjacentHTML('beforeend', '<option value="combination">✓ 條件組合回測（勾選條件，全部符合）</option>');
-  $('#selected-symbols').insertAdjacentHTML('afterend', '<details class="symbol-picker"><summary>勾選多個幣種（最多 6 個，可用上方搜尋）</summary><div id="symbol-checkboxes"></div></details>');
+  $('#selected-symbols').insertAdjacentHTML('afterend', `<div class="symbol-picker-actions"><button type="button" class="secondary" id="open-symbol-picker">☰ 點選幣種</button><span id="symbol-picker-count">已選 ${state.symbols.length} / ${MAX_SYMBOLS}</span></div><div class="mover-shortcuts"><span>Binance 合約 24h 快速選取</span><button type="button" data-mover-preset="gainers10">漲幅前 10</button><button type="button" data-mover-preset="gainers15">漲幅前 15</button><button type="button" data-mover-preset="losers10">跌幅前 10</button><button type="button" data-mover-preset="losers15">跌幅前 15</button><small>會自動切換到 Binance 真實行情＋USDT 永續合約，並取代目前選取。</small></div><dialog id="symbol-picker-dialog" class="symbol-picker-dialog"><div class="symbol-picker-head"><div><h3>點選回測幣種</h3><p>直接點選，不用輸入代碼。最多 ${MAX_SYMBOLS} 個。</p></div><button type="button" id="close-symbol-picker" aria-label="關閉">×</button></div><input id="symbol-picker-search" type="search" placeholder="搜尋 BTC、ETH、SOL…"><div class="symbol-picker-toolbar"><span id="symbol-picker-count-modal"></span><button type="button" id="clear-symbols">清除全部</button></div><div id="symbol-checkboxes" class="symbol-picker-list"></div><div class="symbol-picker-foot"><button type="button" class="primary" id="done-symbol-picker">完成選擇</button></div></dialog>`);
   $('#plain-summary').insertAdjacentHTML('beforebegin', '<section id="combination-results" class="panel hidden" aria-label="條件組合逐幣結果"></section>');
   initCombination();
   $('#strategy').insertAdjacentHTML('beforeend', strategyCatalog.map(s => { const p = beginnerStrategy(s); return `<option value="${s.id}">${p.name}（${s.name}）</option>`; }).join('') + '<option value="custom">＋ 我自己設定買賣條件</option>');
@@ -451,6 +484,10 @@ document.addEventListener('click', event => {
   if (el.matches('.brand')) view('workbench');
   if (el.id === 'help-button') view('tutorial');
   if (el.dataset.market) switchMarket(el.dataset.market);
+  if (el.id === 'open-symbol-picker') { renderSymbolCheckboxes(); const dialog = $('#symbol-picker-dialog'); if (dialog?.showModal) dialog.showModal(); else if (dialog) dialog.setAttribute('open', ''); }
+  if (el.id === 'close-symbol-picker' || el.id === 'done-symbol-picker') { const dialog = $('#symbol-picker-dialog'); if (dialog?.close) dialog.close(); else dialog?.removeAttribute('open'); }
+  if (el.id === 'clear-symbols') { if (!state.running) { state.symbols = []; renderSymbols(); markDirty(); } }
+  if (el.dataset.moverPreset) applyFuturesMoverPreset(el.dataset.moverPreset);
   if (el.id === 'connect-live' || el.id === 'use-demo') { if (state.running) return; $('#source').value = el.id === 'connect-live' ? 'live' : 'demo'; sourceChanged(); }
   if (el.dataset.removeSymbol) { if (state.running) return; state.symbols = state.symbols.filter(s => s !== el.dataset.removeSymbol); renderSymbols(); markDirty(); }
   if (el.dataset.addSymbol) { const before = state.symbols.length; addSymbol(el.dataset.addSymbol); if (state.symbols.length > before) toast('已加入回測交易對'); }
@@ -484,6 +521,7 @@ document.addEventListener('change', event => {
 });
 $('#market-search').addEventListener('input', () => { state.marketPage = 0; renderMarkets(); });
 $('#symbol-search').addEventListener('input', renderSymbolCheckboxes);
+$('#symbol-picker-search').addEventListener('input', renderSymbolCheckboxes);
 $('#config-form').addEventListener('input', markDirty);
 $('#config-form').addEventListener('submit', event => { event.preventDefault(); runBacktest(); });
 initContent();
