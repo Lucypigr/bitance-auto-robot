@@ -40,6 +40,13 @@ jobs:
       - run: git diff --exit-code -- docs
       - run: npx playwright install --with-deps chromium
       - run: npm run test:pages
+      - name: Save Pages browser verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pages-browser-verification
+          path: test-results/
+          if-no-files-found: ignore
       - run: npm run test:e2e
       - name: Save browser verification evidence
         if: always()

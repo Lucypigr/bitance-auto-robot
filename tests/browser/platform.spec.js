@@ -13,13 +13,14 @@ test('spot demo produces detailed report, charts, downloads and interactive sect
   expect((await download).suggestedFilename()).toMatch(/trades.csv/);
   await page.locator('[data-tab="walk"]').click();await expect(page.locator('.fold')).toHaveCount(3);
   await page.locator('[data-tab="indicators"]').click();await expect(page.locator('.snapshot-item')).toHaveCount(37);
-  await page.locator('[data-range="full"]').click();await expect(page.locator('#chart-caption')).toContainText('完整期間');
+  await page.locator('[data-range="full"]').click();await expect(page.locator('#chart-caption')).toContainText('整段歷史資料');
   await page.screenshot({path:'test-results/desktop.png',fullPage:true});
   expect(errors).toEqual([]);
 });
 test('futures, multi-asset and custom strategy run through the actual worker',async({page})=>{
   await page.goto('/');await expect(page.locator('#progress')).toContainText('已完成',{timeout:60000});
   await page.locator('[data-market="futures"]').click();
+  await page.locator('.advanced-settings summary').click();
   await expect(page.locator('#futures-fields')).toBeVisible();
   await page.locator('#symbol-search').fill('ETHUSDT');await page.locator('#symbol-search').dispatchEvent('change');
   await expect(page.locator('.symbol-chip')).toHaveCount(2);
