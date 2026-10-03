@@ -521,7 +521,7 @@ document.addEventListener('change', event => {
 });
 $('#market-search').addEventListener('input', () => { state.marketPage = 0; renderMarkets(); });
 $('#symbol-search').addEventListener('input', renderSymbolCheckboxes);
-$('#symbol-picker-search').addEventListener('input', renderSymbolCheckboxes);
+document.addEventListener('input', event => { if (event.target.id === 'symbol-picker-search') renderSymbolCheckboxes(); });
 $('#config-form').addEventListener('input', markDirty);
 $('#config-form').addEventListener('submit', event => { event.preventDefault(); runBacktest(); });
 initContent();
