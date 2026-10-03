@@ -15,8 +15,9 @@ async function report(page) {
 test('multi-coin AND combination, full-period metrics, save/load and offline report', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await ready(page);
-  await page.locator('.symbol-picker summary').click();
+  await page.locator('#open-symbol-picker').click();
   await page.getByRole('checkbox', { name: '勾選 ETHUSDT', exact: true }).check();
+  await page.locator('#done-symbol-picker').click();
   await condition(page, '4h', 'rsiOversold').uncheck();
   await condition(page, '1h', 'rsiOversold').check();
   await condition(page, '4h', 'rsiOversold').check();
@@ -89,8 +90,9 @@ test('no conditions and spot short fail without showing a successful report', as
 });
 test('mobile can select coins and conditions without document overflow', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await ready(page);
-  await page.locator('.symbol-picker summary').click();
+  await page.locator('#open-symbol-picker').click();
   await page.getByRole('checkbox', { name: '勾選 SOLUSDT', exact: true }).check();
+  await page.locator('#done-symbol-picker').click();
   await condition(page, '4h', 'macdDeath').check();
   await page.locator('#run-button').click();
   await expect(page.locator('#combination-assets tr')).toHaveCount(2, { timeout: 30000 });
