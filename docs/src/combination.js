@@ -1,5 +1,6 @@
 import { computeIndicators } from './indicators.js';
 import { intervals, validateOptions, validateCandles, simulate, metrics } from './backtest.js';
+import { detectPattern, patternCatalog } from './patterns.js';
 
 export const combinationIntervals = ['15m', '1h', '4h', '1d'];
 export const conditionCatalog = {
@@ -9,6 +10,7 @@ export const conditionCatalog = {
   macdDeath: 'MACD 下穿訊號線（死亡交叉）',
   rsiOverbought: 'RSI ≥ 超買門檻', rsiOversold: 'RSI ≤ 超賣門檻',
   bbUpper: '收盤價 ≥ 布林上軌', bbLower: '收盤價 ≤ 布林下軌',
+  ...patternCatalog,
 };
 export function validateCombination(combination) {
   if (!combination || !['long', 'short'].includes(combination.side)) throw new Error('請選擇做多或做空');
@@ -30,13 +32,14 @@ export function executionInterval(combination, market) {
   return combinationIntervals.find(t => intervals[t] === smallest);
 }
 // Indices refer to a native timeframe, never a forward-filled indicator series.
-export function conditionMatches(condition, indicators, index, freshClose) {
+export function conditionMatches(condition, indicators, index, freshClose, candles) {
   const value = key => indicators[key]?.[index];
   const cross = (a, b, up) => {
     const prevA = indicators[a]?.[index - 1], prevB = indicators[b]?.[index - 1];
     if (!freshClose || ![value(a), value(b), prevA, prevB].every(Number.isFinite)) return false;
     return up ? prevA <= prevB && value(a) > value(b) : prevA >= prevB && value(a) < value(b);
   };
+  if (Object.hasOwn(patternCatalog, condition.type)) return !!freshClose && detectPattern(candles, index, condition.type);
   switch (condition.type) {
     case 'emaGolden': return cross('ema50', 'ema200', true);
     case 'emaDeath': return cross('ema50', 'ema200', false);
@@ -68,7 +71,7 @@ export function buildCombinationSignals(base, timeframes, combination, baseInter
     const matches = ready[i] && combination.conditions.every(c => {
       const f = frames[c.interval];
       const fresh = f.candles[f.index].time + intervals[c.interval] === decisionTime;
-      return conditionMatches(c, f.indicators, f.index, fresh);
+      return conditionMatches(c, f.indicators, f.index, fresh, f.candles);
     });
     if (matches) signals[i] = combination.side === 'long' ? 1 : 2;
   }
@@ -85,7 +88,7 @@ export function analyzeCombination(raw, options, onProgress = () => {}) {
   const combination = validateCombination(options.combination);
   if (options.market === 'spot' && combination.side === 'short') throw new Error('做空請切換至永續合約');
   if (options.interval !== executionInterval(combination, options.market)) throw new Error('成交週期必須使用最小條件週期（合約至多 1h）');
-  if (!Array.isArray(raw) || !raw.length || raw.length > 6 || new Set(raw.map(d => d.symbol)).size !== raw.length) throw new Error('請選擇 1 至 6 個不同幣種');
+  if (!Array.isArray(raw) || !raw.length || raw.length > 15 || new Set(raw.map(d => d.symbol)).size !== raw.length) throw new Error('請選擇 1 至 15 個不同幣種');
   if (new Set(raw.map(d => d.quote)).size !== 1) throw new Error('幣種必須使用相同報價幣');
   if (![options.startTime, options.endTime].every(Number.isSafeInteger) || options.startTime >= options.endTime) throw new Error('日期範圍無效');
   const step = intervals[options.interval], cutoff = Math.min(options.endTime, Math.floor(Date.now() / step) * step);
