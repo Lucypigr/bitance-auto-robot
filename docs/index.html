@@ -70,7 +70,7 @@
               <div class="field-grid">
                 <label>搜尋方向<select id="search-side" name="searchSide"><option value="auto">自動（合約多＋空／現貨只多）</option><option value="long">只找做多</option><option value="short">只找做空</option></select></label>
                 <label>最多幾個 AND 條件<select id="search-max-conditions" name="searchMaxConditions"><option value="2">最多 2 個（較快）</option><option value="3" selected>最多 3 個（建議）</option><option value="4">最多 4 個（較慢）</option></select></label>
-                <label>實際候選上限<select id="search-max-candidates" name="searchMaxCandidates"><option value="60">60 組</option><option value="120">120 組</option><option value="180" selected>180 組</option><option value="300">300 組</option></select></label>
+                <label>實際候選上限<select id="search-max-candidates" name="searchMaxCandidates"><option value="30">30 組（快速）</option><option value="60">60 組</option><option value="120">120 組</option><option value="180" selected>180 組</option><option value="300">300 組</option></select></label>
                 <label>冠軍最低交易數<input id="search-min-trades" name="searchMinTrades" type="number" min="1" max="500" step="1" value="20" required></label>
               </div>
               <label class="checkbox-label"><input id="search-risk" name="searchRisk" type="checkbox"><span>連停損／停利一起搜尋<small>開啟後會在 1/2/3/5% 停損與 1/2/3/5/10% 停利的有限組合中搜尋；候選上限仍會限制總工作量。</small></span></label>
