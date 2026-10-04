@@ -544,7 +544,7 @@ function exportTrades() {
 }
 function saveConfig() {
   const values = Object.fromEntries(new FormData($('#config-form')));
-  const config = { version: 1, market: state.market, symbols: state.symbols, quote: state.quote, values, optimize: $('#optimize').checked, rules: readRules(), combination: readCombination() };
+  const config = { version: 1, market: state.market, symbols: state.symbols, quote: state.quote, values, optimize: $('#optimize').checked, searchRisk: $('#search-risk')?.checked ?? false, rules: readRules(), combination: readCombination() };
   try { localStorage.setItem('quantlab-config-v1', JSON.stringify(config)); toast('設定已儲存在此瀏覽器'); } catch { toast('此瀏覽器不允許本機儲存'); }
 }
 async function loadConfig() {
@@ -554,7 +554,7 @@ async function loadConfig() {
     if (!config || config.version !== 1) return toast('尚無已儲存的設定');
     await switchMarket(config.market);
     for (const [name, value] of Object.entries(config.values)) { const element = $('#config-form').elements.namedItem(name); if (element && element.type !== 'checkbox') element.value = value; }
-    state.symbols = config.symbols.slice(0, MAX_SYMBOLS); state.quote = config.quote; $('#optimize').checked = config.optimize;
+    state.symbols = config.symbols.slice(0, MAX_SYMBOLS); state.quote = config.quote; $('#optimize').checked = config.optimize; if ($('#search-risk')) $('#search-risk').checked = !!config.searchRisk;
     initRules(config.rules); initCombination(config.combination); strategyChanged(); renderSymbols(); await sourceChanged(); toast('已載入設定，執行回測即可更新結果');
   } catch { toast('儲存的設定無法讀取'); }
 }
