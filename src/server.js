@@ -6,7 +6,7 @@ import { getMarkets, getHistory, parseHistoryQuery, DataError } from './binance.
 import { demoMarkets, demoHistory } from './demo.js';
 import { createMarketStream } from './stream.js';
 const root = fileURLToPath(new URL('../', import.meta.url));
-const publicModules = new Set(['backtest.js', 'combination.js', 'indicators.js', 'strategies.js', 'demo.js', 'binance.js']);
+const publicModules = new Set(['backtest.js', 'combination.js', 'patterns.js', 'indicators.js', 'strategies.js', 'demo.js', 'binance.js']);
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 export function createApp({ socketFactory } = {}) {
   const streams = createMarketStream(socketFactory);
