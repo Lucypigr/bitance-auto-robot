@@ -74,3 +74,4 @@ jobs:
         uses: actions/deploy-pages@v4
 
 # symbol-picker-deploy-refresh-v3
+# min-capital-5usdt-verify
