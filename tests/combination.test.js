@@ -105,6 +105,38 @@ test('multi-asset long and short reports reconcile costs, trades, and next-open 
     assert.ok(result.full.assets.every(a => Number.isFinite(a.winRate) && a.maxDrawdown <= 0));
   }
 });
+test('5 USDT with 2x futures can open trades; 25% stop and 50% target do not block entries', () => {
+  const options = {
+    ...settings,
+    market: 'futures',
+    capital: 5,
+    allocation: 1,
+    leverage: 2,
+    maintenance: .005,
+    stopLoss: .25,
+    takeProfit: .5,
+    combination: { side: 'short', conditions: [{ interval: '1h', type: 'rsiOverbought', threshold: 0 }] },
+  };
+  const raw = [demoHistory('BTCUSDT', '1h', options.startTime, options.endTime, 'futures')];
+  const result = analyze(raw, options);
+  assert.ok(result.full.trades.length > 0);
+  assert.ok(result.full.trades.every(t => t.side === 'short'));
+  assert.ok(result.metadata.signalDiagnostics[0].combinedHits > 0);
+  assert.ok(Number.isFinite(result.full.stats.endValue));
+  assert.equal(result.options.capital, 5);
+  assert.equal(result.options.leverage, 2);
+  assert.equal(result.options.stopLoss, .25);
+  assert.equal(result.options.takeProfit, .5);
+});
+test('signal diagnostics explain why an AND combination creates no entry', () => {
+  const base = Array.from({ length: 1000 }, (_, i) => candle(i * intervals['1h'], i < 800 ? 100 : 80));
+  const higher = Array.from({ length: 250 }, (_, i) => candle(i * intervals['4h'], i < 200 ? 100 : 80));
+  const combo = { side: 'short', conditions: [{ interval: '4h', type: 'emaGolden' }, { interval: '4h', type: 'emaDeath' }] };
+  const result = buildCombinationSignals(base, { '4h': higher }, combo, '1h');
+  assert.equal(result.diagnostics.combinedHits, 0);
+  assert.equal(result.diagnostics.conditionHits.length, 2);
+  assert.ok(result.diagnostics.readyBars > 0);
+});
 test('missing timeframe fails explicitly; no trades yields zero return and false all-positive', () => {
   const raw = [demoHistory('BTCUSDT', '1h', settings.startTime, settings.endTime)];
   assert.throws(() => analyze(raw, { ...settings, combination: { side: 'long', conditions: [{ interval: '1h', type: 'rsiOversold', threshold: 0 }, { interval: '4h', type: 'bbLower' }] } }), /缺少/);
