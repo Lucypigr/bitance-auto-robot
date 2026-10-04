@@ -136,6 +136,10 @@ test('auto-search renders three champion goals, sortable candidates, and applies
   await page.locator('#search-max-conditions').selectOption('2');
   await page.locator('#search-max-candidates').selectOption('30');
   await page.locator('#search-min-trades').fill('1');
+  await page.evaluate(() => {
+    const end = new Date(document.querySelector('#end-date').value + 'T00:00:00Z');
+    document.querySelector('#start-date').value = new Date(end.getTime() - 14 * 86400000).toISOString().slice(0, 10);
+  });
   await page.locator('#run-button').click();
   await expect(page.locator('#search-results')).toBeVisible({ timeout: 45000 });
   await expect(page.locator('.search-winner-card')).toHaveCount(3);
@@ -165,6 +169,10 @@ test('auto-search stays usable on iPhone-sized viewport', async ({ page }) => {
   await page.locator('#search-max-conditions').selectOption('2');
   await page.locator('#search-max-candidates').selectOption('30');
   await page.locator('#search-min-trades').fill('1');
+  await page.evaluate(() => {
+    const end = new Date(document.querySelector('#end-date').value + 'T00:00:00Z');
+    document.querySelector('#start-date').value = new Date(end.getTime() - 14 * 86400000).toISOString().slice(0, 10);
+  });
   await page.locator('#run-button').click();
   await expect(page.locator('#search-results')).toBeVisible({ timeout: 45000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
