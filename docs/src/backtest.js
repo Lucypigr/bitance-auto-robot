@@ -175,10 +175,10 @@ function score(stats) {
 export function analyze(raw, options, onProgress = () => {}) {
   if (options.strategy === 'combination') return analyzeCombination(raw, options, onProgress);
   validateOptions(options);
-  if (!raw.length || raw.length > 6) throw new Error('每次可比較 1 至 6 個交易對');
+  if (!raw.length || raw.length > 15) throw new Error('每次可比較 1 至 15 個交易對');
   if (new Set(raw.map(d => d.symbol)).size !== raw.length) throw new Error('交易對不得重複');
   if (new Set(raw.map(d => d.quote)).size !== 1) throw new Error('投資組合必須使用相同報價幣');
-  if (raw.reduce((sum, d) => sum + d.candles.length, 0) > 101320) throw new Error('投資組合合計最多 100,000 根研究 K 線，另加暖機');
+  if (raw.reduce((sum, d) => sum + d.candles.length, 0) > 251320) throw new Error('投資組合合計最多 250,000 根研究 K 線，另加暖機');
   const step = intervals[options.interval];
   for (const d of raw) {
     validateCandles(d.candles, step);
