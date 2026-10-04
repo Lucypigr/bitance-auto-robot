@@ -560,9 +560,9 @@ async function loadConfig() {
 }
 function initContent() {
   $('#help-button').title = '新手回測教學'; $('#help-button').setAttribute('aria-label', '新手回測教學');
-  $('#strategy').insertAdjacentHTML('beforeend', '<option value="combination">✓ 條件組合回測（勾選條件，全部符合）</option>');
+  $('#strategy').insertAdjacentHTML('beforeend', '<option value="combination-search">🧠 條件組合自動搜尋（找勝率／穩定／獲利冠軍）</option><option value="combination">✓ 條件組合回測（自己勾選條件）</option>');
   $('#selected-symbols').insertAdjacentHTML('afterend', `<div class="symbol-picker-actions"><button type="button" class="secondary" id="open-symbol-picker">☰ 點選幣種</button><span id="symbol-picker-count">已選 ${state.symbols.length} / ${MAX_SYMBOLS}</span></div><div class="mover-shortcuts"><span>Binance 合約 24h 快速選取</span><button type="button" data-mover-preset="gainers10">漲幅前 10</button><button type="button" data-mover-preset="gainers15">漲幅前 15</button><button type="button" data-mover-preset="losers10">跌幅前 10</button><button type="button" data-mover-preset="losers15">跌幅前 15</button><small>會自動切換到 Binance 真實行情＋USDT 永續合約，並取代目前選取。</small></div><dialog id="symbol-picker-dialog" class="symbol-picker-dialog"><div class="symbol-picker-head"><div><h3>點選回測幣種</h3><p>直接點選，不用輸入代碼。最多 ${MAX_SYMBOLS} 個。</p></div><button type="button" id="close-symbol-picker" aria-label="關閉">×</button></div><input id="symbol-picker-search" type="search" placeholder="搜尋 BTC、ETH、SOL…"><div class="symbol-picker-toolbar"><span id="symbol-picker-count-modal"></span><button type="button" id="clear-symbols">清除全部</button></div><div id="symbol-checkboxes" class="symbol-picker-list"></div><div class="symbol-picker-foot"><button type="button" class="primary" id="done-symbol-picker">完成選擇</button></div></dialog>`);
-  $('#plain-summary').insertAdjacentHTML('beforebegin', '<section id="combination-results" class="panel hidden" aria-label="條件組合逐幣結果"></section>');
+  $('#plain-summary').insertAdjacentHTML('beforebegin', '<section id="search-results" class="panel hidden" aria-label="條件組合自動搜尋結果"></section><section id="combination-results" class="panel hidden" aria-label="條件組合逐幣結果"></section>');
   initCombination();
   $('#strategy').insertAdjacentHTML('beforeend', strategyCatalog.map(s => { const p = beginnerStrategy(s); return `<option value="${s.id}">${p.name}（${s.name}）</option>`; }).join('') + '<option value="custom">＋ 我自己設定買賣條件</option>');
   $('#strategy-cards').innerHTML = strategyCatalog.map((s, i) => { const p = beginnerStrategy(s); return `<article class="strategy-card"><div class="strategy-number">方法 ${String(i + 1).padStart(2, '0')}</div><h3>${esc(p.name)}</h3><div class="indicator-label">技術名稱：${esc(s.name)} · ${esc(s.indicators)}</div><p><b>簡單說：</b>${esc(p.intro)}</p><p><b>實際規則：</b>${esc(p.rule)}</p><button class="secondary" data-use-strategy="${s.id}">用這個方法回測 →</button></article>`; }).join('');
@@ -616,6 +616,7 @@ document.addEventListener('click', event => {
   if (el.id === 'close-symbol-picker' || el.id === 'done-symbol-picker') { const dialog = $('#symbol-picker-dialog'); if (dialog?.close) dialog.close(); else dialog?.removeAttribute('open'); }
   if (el.id === 'clear-symbols') { if (!state.running) { state.symbols = []; renderSymbols(); markDirty(); } }
   if (el.dataset.moverPreset) applyFuturesMoverPreset(el.dataset.moverPreset);
+  if (el.dataset.applySearch) applySearchCandidate(el.dataset.applySearch);
   if (el.id === 'connect-live' || el.id === 'use-demo') { if (state.running) return; $('#source').value = el.id === 'connect-live' ? 'live' : 'demo'; sourceChanged(); }
   if (el.dataset.removeSymbol) { if (state.running) return; state.symbols = state.symbols.filter(s => s !== el.dataset.removeSymbol); renderSymbols(); markDirty(); }
   if (el.dataset.addSymbol) { const before = state.symbols.length; addSymbol(el.dataset.addSymbol); if (state.symbols.length > before) toast('已加入回測交易對'); }
@@ -647,6 +648,7 @@ document.addEventListener('change', event => {
   if (event.target.id === 'symbol-search') { const symbol = event.target.value.trim().toUpperCase(); addSymbol(symbol); event.target.value = ''; }
   if (event.target.id === 'quote-filter') { state.marketPage = 0; renderMarkets(); }
   if (event.target.id === 'trade-side') { state.tradeSide = event.target.value; state.tradePage = 0; renderTrades(); }
+  if (event.target.id === 'search-ranking-sort') { state.searchSort = event.target.value; renderSearchResults(); }
   if (event.target.id === 'candle-symbol') { state.candleSymbol = event.target.value; state.candleOffset = 0; renderCandlestick(); }
   if (event.target.id === 'candle-window-size') { state.candleWindow = Number(event.target.value); state.candleOffset = 0; renderCandlestick(); }
   if (['candle-show-patterns', 'candle-show-signals', 'candle-show-trades'].includes(event.target.id)) renderCandlestick();
