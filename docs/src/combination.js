@@ -113,7 +113,7 @@ export function analyzeCombination(raw, options, onProgress = () => {}) {
     if (from < 0) throw new Error(`${d.symbol} 跨週期暖機不足`);
     return { ...d, candles, indicators: computeIndicators(candles), signals, from };
   });
-  if (data.reduce((sum, d) => sum + d.candles.length + Object.values(d.timeframes ?? {}).reduce((n, cs) => n + cs.length, 0), 0) > 150000) throw new Error('含跨週期暖機資料最多 150,000 根 K 線');
+  if (data.reduce((sum, d) => sum + d.candles.length + Object.values(d.timeframes ?? {}).reduce((n, cs) => n + cs.length, 0), 0) > 320000) throw new Error('含跨週期暖機資料最多 320,000 根 K 線');
   const commonStart = Math.max(...data.map(d => d.candles[d.from].time));
   const commonEnd = Math.min(...data.map(d => d.candles.at(-1).time));
   const bars = Math.round((commonEnd - commonStart) / step) + 1;
