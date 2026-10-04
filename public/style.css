@@ -59,3 +59,21 @@
 @media(max-width:760px){.signal-diagnostics{padding:11px 12px 14px}.signal-detail{min-width:220px}}
 
 .combo-run-settings{margin-top:5px!important;color:#d7e7a4!important;font:10px Consolas,monospace!important;line-height:1.6!important}
+
+/* Combination auto-search */
+#combination-search-builder{border:1px solid #3a4430;background:#141a15;border-radius:7px;padding:14px;margin-bottom:14px}
+#combination-search-builder h4{font-size:12px;color:#dce9bd;margin:0 0 8px}
+.search-winner-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:0 20px 18px}
+.search-winner-card{border:1px solid #344032;background:linear-gradient(145deg,#172019,#12171c);border-radius:7px;padding:16px;min-width:0}
+.search-winner-card.unavailable{border-color:#3a3d43;background:#15181d}
+.search-winner-kicker{display:block;color:var(--lime);font:10px Consolas,monospace;letter-spacing:.5px;margin-bottom:8px}
+.search-winner-card h3{font-size:13px;line-height:1.55;margin:0 0 7px;overflow-wrap:anywhere}
+.search-card-sub{font-size:9px!important;line-height:1.6!important;margin:0 0 10px!important}
+.search-metrics{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;border-top:1px solid #2a332b;border-bottom:1px solid #2a332b;padding:10px 0;margin:10px 0}
+.search-metrics span{font-size:9px;color:#8795a6}.search-metrics b{display:block;color:#d5deea;font:11px Consolas,monospace;margin-top:2px}
+.search-winner-card p{font-size:9px;line-height:1.7;margin:8px 0}.search-risk{color:#d4a5a8!important}.search-winner-card button{margin-top:5px;width:100%}
+.search-ranking-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;padding:16px 20px 10px;border-top:1px solid var(--border)}
+.search-ranking-head h3{font-size:13px;margin:0}.search-ranking-head p{font-size:9px;margin-top:4px}.search-ranking-head label{margin:0;min-width:150px}.search-ranking-head select{margin-top:4px}
+#search-ranking-body .strategy-sub{max-width:430px;white-space:normal;line-height:1.45}
+@media(max-width:1020px){.search-winner-grid{grid-template-columns:1fr 1fr}.search-winner-card:last-child{grid-column:1/-1}}
+@media(max-width:760px){.search-winner-grid{grid-template-columns:1fr;padding:0 12px 14px}.search-winner-card:last-child{grid-column:auto}.search-ranking-head{align-items:stretch;flex-direction:column;padding:14px 12px 8px}.search-ranking-head label{width:100%}#combination-search-builder{grid-column:1/-1}.search-winner-card{padding:14px}}
