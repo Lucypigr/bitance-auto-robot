@@ -45,6 +45,22 @@ test('multi-coin AND combination, full-period metrics, save/load and offline rep
   await expect(page.locator('#detail-content')).toContainText('多');
   expect(errors).toEqual([]);
 });
+test('candlestick reversal controls and annotated K-line chart work after backtest', async ({ page }) => {
+  await ready(page);
+  const fourHour = page.locator('.combo-timeframe').filter({ hasText: '4h 4 小時' });
+  await fourHour.locator('summary').click();
+  await expect(condition(page, '4h', 'hammer')).toBeVisible();
+  await expect(condition(page, '4h', 'shootingStar')).toBeVisible();
+  await expect(condition(page, '4h', 'bullishEngulfing')).toBeVisible();
+  await page.locator('#combo-oversold').fill('100');
+  await page.locator('#run-button').click();
+  await expect(page.locator('#candlestick-chart svg')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#candle-symbol')).toHaveValue('BTCUSDT');
+  await expect(page.locator('#candle-marker-count')).not.toHaveText('0 個標記');
+  await expect(page.locator('#candle-period')).toContainText('UTC');
+  await page.locator('#candle-older').click();
+  await expect(page.locator('#candlestick-chart svg')).toBeVisible();
+});
 test('all four timeframes and contradictory crosses yield explicit no-trade results', async ({ page }) => {
   await ready(page);
   await condition(page, '4h', 'rsiOversold').uncheck();
