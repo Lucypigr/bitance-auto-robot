@@ -134,7 +134,7 @@ test('auto-search renders three champion goals, sortable candidates, and applies
   await page.locator('#strategy').selectOption('combination-search');
   await expect(page.locator('#combination-search-builder')).toBeVisible();
   await page.locator('#search-max-conditions').selectOption('2');
-  await page.locator('#search-max-candidates').selectOption('60');
+  await page.locator('#search-max-candidates').selectOption('30');
   await page.locator('#search-min-trades').fill('1');
   await page.locator('#run-button').click();
   await expect(page.locator('#search-results')).toBeVisible({ timeout: 45000 });
@@ -147,9 +147,9 @@ test('auto-search renders three champion goals, sortable candidates, and applies
   await expect(page.locator('#search-ranking-sort')).toHaveValue('winRateScore');
   const reportData = await report(page);
   expect(reportData.metadata.mode).toBe('combination-search');
-  expect(reportData.metadata.candidates).toBe(60);
+  expect(reportData.metadata.candidates).toBe(30);
   expect(reportData.metadata.split).toBeGreaterThan(reportData.metadata.start);
-  expect(reportData.searchRanking).toHaveLength(60);
+  expect(reportData.searchRanking).toHaveLength(30);
   const apply = page.locator('[data-apply-search]').first();
   await expect(apply).toBeVisible();
   await apply.click();
@@ -163,7 +163,7 @@ test('auto-search stays usable on iPhone-sized viewport', async ({ page }) => {
   await expect(page.locator('#progress')).toContainText('已完成', { timeout: 30000 });
   await page.locator('#strategy').selectOption('combination-search');
   await page.locator('#search-max-conditions').selectOption('2');
-  await page.locator('#search-max-candidates').selectOption('60');
+  await page.locator('#search-max-candidates').selectOption('30');
   await page.locator('#search-min-trades').fill('1');
   await page.locator('#run-button').click();
   await expect(page.locator('#search-results')).toBeVisible({ timeout: 45000 });
