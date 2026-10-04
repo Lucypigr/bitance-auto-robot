@@ -4,7 +4,35 @@ import { analyze, intervals } from '../src/backtest.js';
 import { allAssetsPositive, buildCombinationSignals, conditionMatches, executionInterval, validateCombination } from '../src/combination.js';
 import { demoHistory } from '../src/demo.js';
 import { parseHistoryQuery } from '../src/binance.js';
+import { detectPattern, patternCatalog } from '../src/patterns.js';
 const candle = (time, close = 100) => ({ time, open: close, close, high: close + 1, low: close - 1, volume: 100 });
+const rawCandle = (i, open, high, low, close) => ({ time: i * intervals['1h'], open, high, low, close, volume: 100 });
+test('all nine candlestick reversal patterns have deterministic positive and negative cases', () => {
+  assert.equal(Object.keys(patternCatalog).length, 9);
+  const down = [rawCandle(0,111,112,109,110),rawCandle(1,110,111,107,108),rawCandle(2,108,109,105,106),rawCandle(3,106,107,103,104)];
+  const up = [rawCandle(0,99,101,98,100),rawCandle(1,100,103,99,102),rawCandle(2,102,105,101,104),rawCandle(3,104,107,103,106)];
+  const hammer = [...down, rawCandle(4,103,104.2,99.5,104)];
+  assert.equal(detectPattern(hammer,4,'hammer'),true); assert.equal(detectPattern(hammer,4,'hangingMan'),false);
+  const inv = [...down, rawCandle(4,103,108,102.8,104)];
+  assert.equal(detectPattern(inv,4,'invertedHammer'),true); assert.equal(detectPattern(inv,4,'shootingStar'),false);
+  const hanging = [...up, rawCandle(4,106,107.2,102,107)];
+  assert.equal(detectPattern(hanging,4,'hangingMan'),true); assert.equal(detectPattern(hanging,4,'hammer'),false);
+  const shooting = [...up, rawCandle(4,106,111,105.8,107)];
+  assert.equal(detectPattern(shooting,4,'shootingStar'),true); assert.equal(detectPattern(shooting,4,'invertedHammer'),false);
+  const bullEngulf = [...down, rawCandle(4,104,104.5,101.5,102), rawCandle(5,101,105.5,100.5,105)];
+  assert.equal(detectPattern(bullEngulf,5,'bullishEngulfing'),true); assert.equal(detectPattern(bullEngulf,5,'bearishEngulfing'),false);
+  const bearEngulf = [...up, rawCandle(4,106,108.5,105.5,108), rawCandle(5,109,109.5,104.5,105)];
+  assert.equal(detectPattern(bearEngulf,5,'bearishEngulfing'),true); assert.equal(detectPattern(bearEngulf,5,'bullishEngulfing'),false);
+  const doji = [rawCandle(0,100,102,98,100.2)];
+  assert.equal(detectPattern(doji,0,'doji'),true); assert.equal(detectPattern([rawCandle(0,99,102,98,101.5)],0,'doji'),false);
+  const morning = [...down, rawCandle(4,104,104.5,99,100), rawCandle(5,100,101,99,100.2), rawCandle(6,100.5,104.5,100,104)];
+  assert.equal(detectPattern(morning,6,'morningStar'),true); assert.equal(detectPattern(morning,6,'eveningStar'),false);
+  const evening = [...up, rawCandle(4,106,111,105.5,110), rawCandle(5,110,111,109,109.8), rawCandle(6,109.5,110,105.5,106)];
+  assert.equal(detectPattern(evening,6,'eveningStar'),true); assert.equal(detectPattern(evening,6,'morningStar'),false);
+  assert.equal(conditionMatches({ type: 'hammer' }, {}, 4, true, hammer), true);
+  assert.equal(conditionMatches({ type: 'hammer' }, {}, 4, false, hammer), false);
+});
+
 const settings = { market: 'spot', interval: '1h', capital: 10000, fee: .001, slippage: .0005, allocation: .95, stopLoss: .02, takeProfit: .04, trailingStop: 0, leverage: 1, maintenance: .005, strategy: 'combination', startTime: Date.UTC(2025, 0, 1), endTime: Date.UTC(2025, 1, 1) };
 test('all eight conditions implement inclusive states and fresh native-timeframe cross events', () => {
   const d = { ema50: [1, 3], ema200: [2, 2], macd: [1, 3], macdSignal: [2, 2], rsi: [70, 30], close: [100, 100], bbUpper: [100, 100], bbLower: [100, 100] };
