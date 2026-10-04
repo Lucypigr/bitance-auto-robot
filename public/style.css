@@ -57,3 +57,5 @@
 .signal-diagnostics table{white-space:normal}.signal-diagnostics th,.signal-diagnostics td{vertical-align:top}
 .signal-detail{min-width:260px;max-width:520px;line-height:1.7;color:#9aa8b9}
 @media(max-width:760px){.signal-diagnostics{padding:11px 12px 14px}.signal-detail{min-width:220px}}
+
+.combo-run-settings{margin-top:5px!important;color:#d7e7a4!important;font:10px Consolas,monospace!important;line-height:1.6!important}
