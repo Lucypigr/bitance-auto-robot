@@ -128,6 +128,48 @@ test('mobile can select coins and conditions without document overflow', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await page.screenshot({ path: 'test-results/combination-mobile.png', fullPage: true });
 });
+test('auto-search renders three champion goals, sortable candidates, and applies a candidate to manual combination', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('#progress')).toContainText('已完成', { timeout: 30000 });
+  await page.locator('#strategy').selectOption('combination-search');
+  await expect(page.locator('#combination-search-builder')).toBeVisible();
+  await page.locator('#search-max-conditions').selectOption('2');
+  await page.locator('#search-max-candidates').selectOption('60');
+  await page.locator('#search-min-trades').fill('1');
+  await page.locator('#run-button').click();
+  await expect(page.locator('#search-results')).toBeVisible({ timeout: 45000 });
+  await expect(page.locator('.search-winner-card')).toHaveCount(3);
+  await expect(page.locator('#search-results')).toContainText('勝率最高');
+  await expect(page.locator('#search-results')).toContainText('最穩定');
+  await expect(page.locator('#search-results')).toContainText('獲利最多');
+  await expect(page.locator('#search-ranking-body tr').first()).toBeVisible();
+  await page.locator('#search-ranking-sort').selectOption('winRateScore');
+  await expect(page.locator('#search-ranking-sort')).toHaveValue('winRateScore');
+  const reportData = await report(page);
+  expect(reportData.metadata.mode).toBe('combination-search');
+  expect(reportData.metadata.candidates).toBe(60);
+  expect(reportData.metadata.split).toBeGreaterThan(reportData.metadata.start);
+  expect(reportData.searchRanking).toHaveLength(60);
+  const apply = page.locator('[data-apply-search]').first();
+  await expect(apply).toBeVisible();
+  await apply.click();
+  await expect(page.locator('#strategy')).toHaveValue('combination');
+  await expect(page.locator('#combination-builder')).toBeVisible();
+  expect(await page.locator('[data-combo-type]:checked').count()).toBeGreaterThan(0);
+});
+test('auto-search stays usable on iPhone-sized viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await expect(page.locator('#progress')).toContainText('已完成', { timeout: 30000 });
+  await page.locator('#strategy').selectOption('combination-search');
+  await page.locator('#search-max-conditions').selectOption('2');
+  await page.locator('#search-max-candidates').selectOption('60');
+  await page.locator('#search-min-trades').fill('1');
+  await page.locator('#run-button').click();
+  await expect(page.locator('#search-results')).toBeVisible({ timeout: 45000 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: 'test-results/auto-search-mobile.png', fullPage: true });
+});
 test('live multi-timeframe loading uses Binance endpoints directly and propagates frame errors', async ({ page }) => {
   const requests = [];
   await page.route('https://data-api.binance.vision/**', async route => {
