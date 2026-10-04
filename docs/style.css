@@ -33,3 +33,19 @@
 .symbol-picker-foot{display:flex;justify-content:flex-end;border-top:1px solid #29323e;padding:12px 20px}.symbol-picker-foot .primary{min-width:120px}
 @media(max-width:760px){.symbol-picker-list{grid-template-columns:repeat(2,minmax(0,1fr));padding:4px 12px 14px}.symbol-picker-head{padding:16px 14px 9px}#symbol-picker-search{width:calc(100% - 28px);margin:0 14px 10px;font-size:16px}.symbol-picker-toolbar{padding:0 14px 10px}.mover-shortcuts button{min-height:36px;flex:1 1 calc(50% - 6px)}}
 @media(max-width:400px){.symbol-picker-list{grid-template-columns:1fr}}
+
+/* Candlestick pattern conditions and annotated price chart */
+.combo-condition-title{font-size:9px;letter-spacing:.8px;color:#7f8da1;margin:8px 0 2px}
+.pattern-conditions{margin-top:12px;border-top:1px solid #2a323d;padding-top:10px}
+.pattern-conditions summary{cursor:pointer;color:#e0bd82;font-size:10px;font-weight:600}
+.pattern-conditions>p{font-size:8px;line-height:1.6;margin:6px 0 2px;color:#748196}
+.candle-panel{margin:0 0 17px}.candle-controls{display:flex;gap:8px;align-items:center}
+.candle-controls select{width:auto;min-width:105px;margin:0;height:31px;padding:4px 8px;font-size:9px}
+.candle-toggle-row{display:flex;align-items:center;gap:16px;padding:0 21px 5px;flex-wrap:wrap}
+.candle-toggle-row label{display:flex;align-items:center;gap:6px;margin:0;color:#8f9cad;font-size:9px}
+.candle-toggle-row input{width:13px;height:13px;margin:0}.candle-toggle-row>span{margin-left:auto;color:#69788d;font:9px Consolas,monospace}
+.candle-legend{flex-wrap:wrap}.candle-key{width:10px;height:10px;border-radius:2px;display:inline-block}.candle-key.bullish{background:#66d7a5}.candle-key.bearish{background:#f38c95}.candle-key.signal{background:#e5b977;transform:rotate(45deg);width:8px;height:8px}
+.candle-chart-wrap{height:330px;margin-top:4px}.candle-chart-wrap .tooltip-notes{color:#d8e0ea}
+.candle-nav{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--border);padding:10px 16px}
+.candle-nav span{font:9px Consolas,monospace;color:#7b899b;text-align:center}.candle-nav .secondary{padding:6px 10px;font-size:9px}
+@media(max-width:760px){.candle-panel .panel-heading{align-items:flex-start}.candle-controls{width:100%}.candle-controls select{flex:1;min-width:0}.candle-toggle-row{gap:9px;padding:0 14px 7px}.candle-toggle-row>span{width:100%;margin-left:0}.candle-chart-wrap{height:300px;margin-left:4px;margin-right:4px}.candle-nav{padding:9px 10px}.candle-nav span{font-size:8px}}
