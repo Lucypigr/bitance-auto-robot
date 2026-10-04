@@ -4,7 +4,7 @@ import { analyzeCombination } from './combination.js';
 export const intervals = { '5m': 300000, '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000 };
 const DAY = 86400000;
 export function validateOptions(o) {
-  for (const [key, min, max] of [['capital', 100, 1e9], ['fee', 0, .02], ['slippage', 0, .02], ['allocation', .01, 1], ['stopLoss', 0, .5], ['takeProfit', 0, 2], ['trailingStop', 0, .5], ['leverage', 1, 10], ['maintenance', .001, .1]]) {
+  for (const [key, min, max] of [['capital', 5, 1e9], ['fee', 0, .02], ['slippage', 0, .02], ['allocation', .01, 1], ['stopLoss', 0, .5], ['takeProfit', 0, 2], ['trailingStop', 0, .5], ['leverage', 1, 10], ['maintenance', .001, .1]]) {
     if (!Number.isFinite(o[key]) || o[key] < min || o[key] > max) throw new Error(`${key} 必須介於 ${min} 與 ${max}`);
   }
   if (!['spot', 'futures'].includes(o.market) || !Object.hasOwn(intervals, o.interval)) throw new Error('市場或 K 線週期不正確');
