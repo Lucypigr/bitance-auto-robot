@@ -1,8 +1,9 @@
 import { strategyCatalog } from './src/strategies.js';
 import { indicatorCatalog } from './src/indicators.js';
 import { intervals, validateOptions } from './src/backtest.js';
-import { conditionCatalog, combinationIntervals, executionInterval, validateCombination } from './src/combination.js';
-import { equityChart, drawdownChart } from './charts.js';
+import { conditionCatalog, combinationIntervals, executionInterval, validateCombination, buildCombinationSignals } from './src/combination.js';
+import { detectPattern, patternCatalog, patternShortLabels, patternBias } from './src/patterns.js';
+import { equityChart, drawdownChart, candlestickChart } from './charts.js';
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const staticMode = document.querySelector('meta[name="quantlab-mode"]')?.content === 'static';
@@ -16,7 +17,7 @@ const datetime = time => new Date(time).toISOString().slice(0, 16).replace('T', 
 const compact = v => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(v);
 const price = v => num(v, v < 1 ? 6 : v < 100 ? 3 : 2);
 const MAX_SYMBOLS = 15;
-const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT', pickingMovers: false };
+const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT', pickingMovers: false, candleSymbol: null, candleOffset: 0, candleWindow: 120 };
 const beginnerStrategyGuide = {
   trend: { name: '順著強勢趨勢走', intro: '只在方向很明顯時跟著趨勢進場。' },
   rsi: { name: '超跌後等反彈', intro: '價格短線跌太多時買進，恢復正常後離場。' },
@@ -234,7 +235,10 @@ function readCombination() {
   return { side: $('#combination-side').value, conditions: $$('[data-combo-type]:checked').map(el => ({ interval: el.dataset.comboInterval, type: el.dataset.comboType, ...(el.dataset.comboType.startsWith('rsi') ? { threshold: Number($(el.dataset.comboType === 'rsiOverbought' ? '#combo-overbought' : '#combo-oversold').value) } : {}) })) };
 }
 function initCombination(saved) {
-  $('#combination-conditions').innerHTML = combinationIntervals.map(interval => `<fieldset class="combo-timeframe"><legend>${interval} ${ { '15m': '15 分鐘', '1h': '1 小時', '4h': '4 小時', '1d': '日線' }[interval]}</legend>${Object.entries(conditionCatalog).map(([type, label]) => `<label class="checkbox-label"><input type="checkbox" data-combo-interval="${interval}" data-combo-type="${type}" aria-label="${interval} ${esc(label)}" ${(saved ? saved.conditions.some(c => c.interval === interval && c.type === type) : interval === '4h' && type === 'rsiOversold') ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('')}</fieldset>`).join('');
+  const technical = Object.entries(conditionCatalog).filter(([type]) => !Object.hasOwn(patternCatalog, type));
+  const patterns = Object.entries(patternCatalog);
+  const checks = (items, interval) => items.map(([type, label]) => `<label class="checkbox-label"><input type="checkbox" data-combo-interval="${interval}" data-combo-type="${type}" aria-label="${interval} ${esc(label)}" ${(saved ? saved.conditions.some(c => c.interval === interval && c.type === type) : interval === '4h' && type === 'rsiOversold') ? 'checked' : ''}><span>${esc(label)}</span></label>`).join('');
+  $('#combination-conditions').innerHTML = combinationIntervals.map(interval => `<fieldset class="combo-timeframe"><legend>${interval} ${ { '15m': '15 分鐘', '1h': '1 小時', '4h': '4 小時', '1d': '日線' }[interval]}</legend><div class="combo-condition-title">技術指標</div>${checks(technical, interval)}<details class="pattern-conditions"><summary>K 線反轉型態（9 種）</summary><p>型態以固定 OHLC 比例與前段趨勢判定；只在該根 K 線收盤後成立。</p>${checks(patterns, interval)}</details></fieldset>`).join('');
   if (saved) $('#combination-side').value = saved.side;
   updateCombinationDescription();
 }
@@ -345,6 +349,60 @@ async function runBacktest() {
   }
 }
 function currentReport() { return state.result?.[state.range]; }
+function buildCandlestickMarkers(dataset) {
+  const result = state.result, report = currentReport(), options = result.options, markers = [];
+  const showPatterns = $('#candle-show-patterns')?.checked !== false;
+  const showSignals = $('#candle-show-signals')?.checked !== false;
+  const showTrades = $('#candle-show-trades')?.checked !== false;
+  if (showPatterns && options.strategy === 'combination') {
+    for (const condition of options.combination.conditions.filter(c => Object.hasOwn(patternCatalog, c.type))) {
+      const candles = condition.interval === options.interval ? dataset.candles : dataset.timeframes?.[condition.interval];
+      if (!candles) continue;
+      for (let i = 0; i < candles.length; i++) if (detectPattern(candles, i, condition.type)) markers.push({
+        time: candles[i].time + intervals[condition.interval] - 1, kind: 'pattern', bias: patternBias[condition.type],
+        short: patternShortLabels[condition.type], label: `${condition.interval} ${patternCatalog[condition.type]}`,
+      });
+    }
+  }
+  if (showSignals && options.strategy === 'combination') {
+    try {
+      const timeframes = { ...(dataset.timeframes ?? {}), [options.interval]: dataset.candles };
+      const { signals } = buildCombinationSignals(dataset.candles, timeframes, options.combination, options.interval);
+      for (let i = 0; i < signals.length; i++) if (signals[i]) markers.push({
+        time: dataset.candles[i].time + intervals[options.interval] - 1, kind: 'signal',
+        label: `全部 AND 條件成立 → 下一根${options.combination.side === 'long' ? '做多' : '做空'}`,
+      });
+    } catch { /* Chart annotations must never break the completed report. */ }
+  }
+  if (showTrades) for (const trade of report.trades.filter(t => t.symbol === dataset.symbol)) {
+    markers.push({ time: trade.entryTime, kind: 'entry', side: trade.side, label: `${trade.side === 'long' ? '做多' : '做空'}進場 @ ${price(trade.entry)}` });
+    markers.push({ time: trade.exitTime, kind: 'exit', side: trade.side, label: `${({ signal: '策略出場', stop: '停損', target: '停利', end: '期末平倉', liquidation: '估計清算' })[trade.reason] ?? trade.reason} @ ${price(trade.exit)} · 損益 ${pct(trade.return)}` });
+  }
+  return markers;
+}
+function renderCandlestick() {
+  const panel = $('#candlestick-panel'); if (!panel || !state.result || !state.datasets?.length) return;
+  const symbols = state.result.metadata.symbols;
+  if (!state.candleSymbol || !symbols.includes(state.candleSymbol)) state.candleSymbol = symbols[0];
+  const selector = $('#candle-symbol');
+  selector.innerHTML = symbols.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  selector.value = state.candleSymbol;
+  const dataset = state.datasets.find(d => d.symbol === state.candleSymbol) ?? state.datasets[0], report = currentReport();
+  const first = report.equity[0]?.time, last = report.equity.at(-1)?.time;
+  const all = dataset.candles.filter(c => c.time >= first && c.time <= last);
+  state.candleWindow = Number($('#candle-window-size')?.value || state.candleWindow || 120);
+  const maxOffset = Math.max(0, all.length - 1);
+  state.candleOffset = Math.max(0, Math.min(state.candleOffset, maxOffset));
+  let end = Math.max(1, all.length - state.candleOffset), start = Math.max(0, end - state.candleWindow);
+  if (end - start < state.candleWindow && start === 0) end = Math.min(all.length, state.candleWindow);
+  const visible = all.slice(start, end);
+  const markers = buildCandlestickMarkers(dataset);
+  candlestickChart($('#candlestick-chart'), visible, markers);
+  $('#candle-period').textContent = visible.length ? `${datetime(visible[0].time)} → ${datetime(visible.at(-1).time)} UTC · ${visible.length} 根` : '—';
+  $('#candle-marker-count').textContent = `${markers.filter(m => visible.length && m.time >= visible[0].time && m.time < visible.at(-1).time + intervals[state.result.options.interval]).length} 個標記`;
+  $('#candle-older').disabled = start === 0;
+  $('#candle-newer').disabled = end >= all.length;
+}
 function renderResults() {
   if (!state.result) return;
   const result = state.result, report = currentReport(), s = report.stats, source = result.metadata.sources[0].source;
@@ -376,7 +434,7 @@ function renderResults() {
   $('#drawdown-max').textContent = `${num(s.maxDrawdown)}%`;
   $('#detail-range-label').textContent = state.range === 'test' ? '樣本外期間' : '完整期間';
   $$('[data-range]').forEach(b => b.classList.toggle('active', b.dataset.range === state.range));
-  equityChart($('#equity-chart'), report); drawdownChart($('#drawdown-chart'), report.equity);
+  equityChart($('#equity-chart'), report); drawdownChart($('#drawdown-chart'), report.equity); renderCandlestick();
   $('#candidate-count').textContent = result.ranking.length;
   $('#ranking-body').innerHTML = result.ranking.map((r, i) => { const p = beginnerStrategy(r.strategy); return `<tr><td><span class="rank-number ${i === 0 ? 'winner' : ''}">${String(i + 1).padStart(2, '0')}</span><span class="strategy-name">${esc(p.name)}</span>${i === 0 ? '<span class="best-pill">前段表現最好</span>' : ''}<span class="strategy-sub">${esc(p.rule)}</span></td><td class="mono ${color(r.train.totalReturn)}">${pct(r.train.totalReturn)}</td><td class="mono ${color(r.test.totalReturn)}">${pct(r.test.totalReturn)}</td><td class="mono negative">${num(r.test.maxDrawdown)}%</td><td class="mono">${r.test.trades}</td></tr>`; }).join('');
   const top = result.ranking[0], topPlain = beginnerStrategy(top.strategy);
@@ -493,7 +551,8 @@ document.addEventListener('click', event => {
   if (el.dataset.addSymbol) { const before = state.symbols.length; addSymbol(el.dataset.addSymbol); if (state.symbols.length > before) toast('已加入回測交易對'); }
   if (el.dataset.marketPage) { state.marketPage += Number(el.dataset.marketPage); renderMarkets(); }
   if (el.dataset.tradePage) { state.tradePage += Number(el.dataset.tradePage); renderTrades(); }
-  if (el.dataset.range) { state.range = el.dataset.range; state.tradePage = 0; renderResults(); }
+  if (el.dataset.range) { state.range = el.dataset.range; state.tradePage = 0; state.candleOffset = 0; renderResults(); }
+  if (el.dataset.candleNav) { state.candleOffset = Math.max(0, state.candleOffset + Number(el.dataset.candleNav) * state.candleWindow); renderCandlestick(); }
   if (el.dataset.tab) { state.tab = el.dataset.tab; renderDetail(); }
   if (el.dataset.useStrategy) { if (state.running) return; $('#strategy').value = el.dataset.useStrategy; strategyChanged(); view('workbench'); $('#strategy').focus(); }
   if (el.classList.contains('add-rule')) { const list = el.previousElementSibling; if (list.children.length < 8) list.append(ruleRow()); markDirty(); }
@@ -518,6 +577,9 @@ document.addEventListener('change', event => {
   if (event.target.id === 'symbol-search') { const symbol = event.target.value.trim().toUpperCase(); addSymbol(symbol); event.target.value = ''; }
   if (event.target.id === 'quote-filter') { state.marketPage = 0; renderMarkets(); }
   if (event.target.id === 'trade-side') { state.tradeSide = event.target.value; state.tradePage = 0; renderTrades(); }
+  if (event.target.id === 'candle-symbol') { state.candleSymbol = event.target.value; state.candleOffset = 0; renderCandlestick(); }
+  if (event.target.id === 'candle-window-size') { state.candleWindow = Number(event.target.value); state.candleOffset = 0; renderCandlestick(); }
+  if (['candle-show-patterns', 'candle-show-signals', 'candle-show-trades'].includes(event.target.id)) renderCandlestick();
 });
 $('#market-search').addEventListener('input', () => { state.marketPage = 0; renderMarkets(); });
 $('#symbol-search').addEventListener('input', renderSymbolCheckboxes);
