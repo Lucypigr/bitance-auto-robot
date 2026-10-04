@@ -49,3 +49,11 @@
 .candle-nav{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--border);padding:10px 16px}
 .candle-nav span{font:9px Consolas,monospace;color:#7b899b;text-align:center}.candle-nav .secondary{padding:6px 10px;font-size:9px}
 @media(max-width:760px){.candle-panel .panel-heading{align-items:flex-start}.candle-controls{width:100%}.candle-controls select{flex:1;min-width:0}.candle-toggle-row{gap:9px;padding:0 14px 7px}.candle-toggle-row>span{width:100%;margin-left:0}.candle-chart-wrap{height:300px;margin-left:4px;margin-right:4px}.candle-nav{padding:9px 10px}.candle-nav span{font-size:8px}}
+
+/* Combination no-trade diagnostics */
+.signal-diagnostics{border-top:1px solid var(--border);margin-top:10px;padding:12px 20px 16px}
+.signal-diagnostics summary{cursor:pointer;color:#d8e89f;font-size:11px;font-weight:600}
+.signal-diagnostics>p{font-size:9px;line-height:1.7;margin:8px 0 10px;color:#8694a7}
+.signal-diagnostics table{white-space:normal}.signal-diagnostics th,.signal-diagnostics td{vertical-align:top}
+.signal-detail{min-width:260px;max-width:520px;line-height:1.7;color:#9aa8b9}
+@media(max-width:760px){.signal-diagnostics{padding:11px 12px 14px}.signal-detail{min-width:220px}}
