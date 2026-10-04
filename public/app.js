@@ -252,7 +252,7 @@ function strategyChanged() {
   $('#combination-builder').classList.toggle('hidden', id !== 'combination');
   $('#interval').disabled = id === 'combination';
   $('#optimize-row')?.classList.toggle('hidden', id === 'combination');
-  $('.standard-risk-only').forEach(el => el.classList.toggle('hidden', id === 'combination'));
+  document.querySelectorAll('.standard-risk-only').forEach(el => el.classList.toggle('hidden', id === 'combination'));
   $('#combo-advanced-note')?.classList.toggle('hidden', id !== 'combination');
   if (id === 'combination') { $('#strategy-hint').textContent = '依你勾選的條件測整段期間，不自動選策略。每個幣種都會列出淨報酬、勝率、交易次數、最大回撤。'; updateCombinationDescription(); markDirty(); return; }
   if (id === 'auto') $('#strategy-hint').textContent = '最適合第一次使用：系統會把所有方法都跑一次，再把結果並排給你看。';
