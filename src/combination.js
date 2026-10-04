@@ -254,7 +254,7 @@ export function scoreSearchResult(report, minTrades = 20) {
   const samplePenalty = s.trades >= minTrades ? 0 : (minTrades - s.trades) * 25;
   const liquidationPenalty = s.liquidations * 250;
   const winRateScore = (eligible ? 0 : -100000) + s.winRate + Math.min(s.trades, 200) / 1000 - Math.abs(s.maxDrawdown) / 1000;
-  const returnScore = (eligible ? 0 : -100000) + s.totalReturn - Math.abs(s.maxDrawdown) * .35 + consistency * 8 - liquidationPenalty;
+  const returnScore = (eligible ? 0 : -100000) + s.totalReturn + consistency * .0001 - Math.abs(s.maxDrawdown) * .000001 - liquidationPenalty;
   const stabilityScore = (eligible ? 0 : -100000)
     + (s.sharpe ?? -3) * 2
     + (s.sortino ?? -3) * .45
@@ -279,7 +279,7 @@ function explainSearchCandidate(row, kind, minTrades) {
   const why = kind === 'winRate'
     ? `訓練段勝率 ${t.winRate.toFixed(1)}%，且有 ${t.trades} 筆交易，已通過最少 ${minTrades} 筆門檻；跨幣正報酬比例約 ${consistency}%。`
     : kind === 'return'
-      ? `訓練段淨報酬 ${t.totalReturn.toFixed(2)}%，在通過樣本門檻的候選中，兼顧回撤與跨幣一致性後排名最高。`
+      ? `訓練段淨報酬 ${t.totalReturn.toFixed(2)}%，在通過最低交易數且沒有估計清算的候選中最高；回撤與跨幣一致性另外列出，不拿來偷改「獲利最多」的定義。`
       : `訓練段以 Sharpe、Sortino、獲利因子、最大回撤、交易數與跨幣一致性綜合評分最高；不是只追求單一高勝率。`;
   const risks = [];
   if (h.trades < minTrades) risks.push(`樣本外只有 ${h.trades} 筆交易，證據仍偏少`);
