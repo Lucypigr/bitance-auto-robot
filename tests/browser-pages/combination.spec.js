@@ -76,16 +76,27 @@ test('all four timeframes and contradictory crosses yield explicit no-trade resu
   expect(saved.options.interval).toBe('15m'); expect(saved.full.stats.trades).toBe(0);
   expect(Object.keys(saved.datasets[0].timeframes).sort()).toEqual(['1d', '1h', '4h']);
   expect(saved.full.stats.totalReturn).toBe(0);
+  expect(saved.metadata.signalDiagnostics[0].combinedHits).toBe(0);
+  await expect(page.locator('#signal-diagnostics-body')).toContainText('0');
+  await expect(page.locator('#plain-summary')).toContainText('沒有開單（0 筆交易）');
 });
-test('futures shorts accept daily conditions but execute at 1h with stop/target costs', async ({ page }) => {
+test('5 USDT 2x futures shorts open trades with combination stop and target', async ({ page }) => {
   await ready(page);
+  await expect(page.locator('#optimize-row')).toBeHidden();
+  await expect(page.locator('.standard-risk-only').first()).toBeHidden();
+  await expect(page.locator('#combo-advanced-note')).toBeHidden();
+  await page.locator('.advanced-settings summary').click();
+  await expect(page.locator('#combo-advanced-note')).toBeVisible();
   await page.locator('[data-market="futures"]').click();
   await expect(page.locator('#market-count')).toContainText('永續合約');
+  await page.locator('#capital').fill('5');
+  await page.locator('#leverage').fill('2');
+  await page.locator('#allocation').fill('100');
   await page.locator('#combination-side').selectOption('short');
   await condition(page, '4h', 'rsiOversold').uncheck();
   await condition(page, '1d', 'rsiOverbought').check();
   await page.locator('#combo-overbought').fill('0');
-  await page.locator('#combo-stop').fill('2'); await page.locator('#combo-target').fill('1');
+  await page.locator('#combo-stop').fill('25'); await page.locator('#combo-target').fill('50');
   await page.locator('#run-button').click();
   await expect(page.locator('#combination-assets tr')).toHaveCount(1, { timeout: 30000 });
   const saved = await report(page);
@@ -93,7 +104,9 @@ test('futures shorts accept daily conditions but execute at 1h with stop/target 
   expect(saved.full.trades.length).toBeGreaterThan(0);
   expect(saved.full.trades.every(t => t.side === 'short' && t.fees > 0)).toBe(true);
   expect(saved.full.trades.some(t => ['stop', 'target'].includes(t.reason))).toBe(true);
-  expect(saved.options.stopLoss).toBe(.02); expect(saved.options.takeProfit).toBe(.01);
+  expect(saved.options.capital).toBe(5); expect(saved.options.leverage).toBe(2);
+  expect(saved.options.stopLoss).toBe(.25); expect(saved.options.takeProfit).toBe(.5);
+  expect(saved.metadata.signalDiagnostics[0].combinedHits).toBeGreaterThan(0);
 });
 test('no conditions and spot short fail without showing a successful report', async ({ page }) => {
   await ready(page);
