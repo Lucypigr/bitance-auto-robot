@@ -61,6 +61,8 @@ export function buildCombinationSignals(base, timeframes, combination, baseInter
     return [interval, { candles, indicators: computeIndicators(candles), index: -1 }];
   }));
   const signals = new Uint8Array(base.length), ready = new Uint8Array(base.length);
+  const conditionHits = combination.conditions.map(() => 0);
+  let combinedHits = 0, readyBars = 0;
   for (let i = 0; i < base.length; i++) {
     const decisionTime = base[i].time + intervals[baseInterval];
     for (const [interval, frame] of Object.entries(frames)) {
@@ -68,14 +70,22 @@ export function buildCombinationSignals(base, timeframes, combination, baseInter
     }
     // Require 200 completed candles in every selected timeframe, including the current close.
     ready[i] = Number(Object.values(frames).every(f => f.index >= 199));
-    const matches = ready[i] && combination.conditions.every(c => {
+    if (!ready[i]) continue;
+    readyBars++;
+    const matchesByCondition = combination.conditions.map((c, conditionIndex) => {
       const f = frames[c.interval];
       const fresh = f.candles[f.index].time + intervals[c.interval] === decisionTime;
-      return conditionMatches(c, f.indicators, f.index, fresh, f.candles);
+      const matched = conditionMatches(c, f.indicators, f.index, fresh, f.candles);
+      if (matched) conditionHits[conditionIndex]++;
+      return matched;
     });
-    if (matches) signals[i] = combination.side === 'long' ? 1 : 2;
+    const matches = matchesByCondition.every(Boolean);
+    if (matches) {
+      combinedHits++;
+      signals[i] = combination.side === 'long' ? 1 : 2;
+    }
   }
-  return { signals, ready };
+  return { signals, ready, diagnostics: { readyBars, combinedHits, conditionHits } };
 }
 export function allAssetsPositive(assets, selectedSymbols) {
   return selectedSymbols.length > 0 && assets.length === selectedSymbols.length && new Set(assets.map(a => a.symbol)).size === selectedSymbols.length && selectedSymbols.every(symbol => {
@@ -108,10 +118,10 @@ export function analyzeCombination(raw, options, onProgress = () => {}) {
       if (!Array.isArray(timeframes[interval])) throw new Error(`${d.symbol} 缺少 ${interval} 資料`);
       timeframes[interval] = timeframes[interval].filter(c => c.time + intervals[interval] <= cutoff);
     }
-    const { signals, ready } = buildCombinationSignals(candles, timeframes, combination, options.interval);
+    const { signals, ready, diagnostics } = buildCombinationSignals(candles, timeframes, combination, options.interval);
     const from = candles.findIndex((c, i) => i >= 200 && c.time >= options.startTime && ready[i - 1]);
     if (from < 0) throw new Error(`${d.symbol} 跨週期暖機不足`);
-    return { ...d, candles, indicators: computeIndicators(candles), signals, from };
+    return { ...d, candles, indicators: computeIndicators(candles), signals, from, signalDiagnostics: diagnostics };
   });
   if (data.reduce((sum, d) => sum + d.candles.length + Object.values(d.timeframes ?? {}).reduce((n, cs) => n + cs.length, 0), 0) > 320000) throw new Error('含跨週期暖機資料最多 320,000 根 K 線');
   const commonStart = Math.max(...data.map(d => d.candles[d.from].time));
@@ -140,6 +150,12 @@ export function analyzeCombination(raw, options, onProgress = () => {}) {
     mode: 'combination', generatedAt: new Date().toISOString(), sources: raw.map(d => ({ symbol: d.symbol, source: d.source, fetchedAt: d.fetchedAt })),
     symbols: raw.map(d => d.symbol), start: commonStart, end: commonEnd, bars, candidates: 1,
     commonPeriodTrimmed: commonStart > options.startTime + step,
+    signalDiagnostics: data.map(d => ({
+      symbol: d.symbol,
+      readyBars: d.signalDiagnostics.readyBars,
+      combinedHits: d.signalDiagnostics.combinedHits,
+      conditions: combination.conditions.map((condition, i) => ({ ...condition, hits: d.signalDiagnostics.conditionHits[i] })),
+    })),
     warnings: ['本報告為指定條件的完整期間回測，沒有自動選參數或樣本外排名。', '交叉僅在該週期交叉收盤時成立；狀態條件採最新已收盤值。', '各幣等額配置獨立帳戶；零交易、零報酬均不算正報酬。', '停損停利同根觸及時停損優先；跳空採開盤價。', '重複測試可能過度擬合；歷史獲利不保證未來。'],
   } };
 }
