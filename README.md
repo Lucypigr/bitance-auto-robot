@@ -47,7 +47,7 @@ npm run test:pages
 - **指標**：SMA、EMA、Wilder RSI、MACD / Signal / Histogram、Bollinger Bands / Width、ATR、ADX / ±DI、Stochastic K/D、CCI、Williams %R、ROC、OBV / MA、UTC 日內 VWAP、MFI、Volume / MA、Donchian、Keltner、Supertrend。共 37 個可引用的數值輸出（包含價格和成交量）。預設週期列於介面與 `src/indicators.js`。
 - **策略**：趨勢共振、RSI 回歸、布林反轉、Donchian 突破、MACD 動能、Stochastic 反轉、Supertrend、Keltner 突破、VWAP 量價、CCI / MFI 反轉。可比較 24 組策略／門檻參數；不是窮舉全部可能參數。
 - **自訂規則**：做多進出場與做空進出場四組；每組至多 8 條 AND 規則。比較 `>`、`<`、上穿、下穿，右側可用常數或指標代碼。不執行使用者輸入的程式碼。
-- **執行模型**：收盤訊號、下一根開盤成交，雙邊手續費、雙邊不利滑價、投入比例、停損、停利、移動停損、期末平倉。
+- **執行模型**：回測起始資金最低可設 5 USDT；收盤訊號、下一根開盤成交，雙邊手續費、雙邊不利滑價、投入比例、停損、停利、移動停損、期末平倉。
 - **合約模型**：做多／做空、1–10 倍槓桿、逐倉、歷史資金費率、標記價格淨值與清算估計。**不包含 COIN-M、交割合約、全倉、ADL 或交易所精確分級維持保證金。**
 - **合約漲跌幅榜快捷選取**：選幣視窗可直接點選交易對，並可一鍵載入 Binance USDT 永續合約 24h 漲幅前 10／15 或跌幅前 10／15；快捷榜單強制使用真實 Binance 行情，不使用示範資料。
 - **K 線型態與標註**：槌頭線、倒槌頭、上吊線、流星線、看漲／看跌吞噬、十字星、晨星、暮星可直接作為跨週期 AND 條件；回測 K 線圖可標示型態、AND 訊號與進出場。
