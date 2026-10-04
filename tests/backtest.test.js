@@ -56,6 +56,8 @@ test('spot cannot short and trailing stop becomes active only next bar', () => {
   assert.equal(result.trades[0].exitTime,c[2].time+hour-1); near(result.trades[0].exit,108);
 });
 test('invalid settings, malformed candles and arbitrary rule code rejected', () => {
+  assert.doesNotThrow(()=>validateOptions({...options,capital:5}));
+  assert.throws(()=>validateOptions({...options,capital:4.99}));
   assert.throws(()=>validateOptions({...options,leverage:2}));
   assert.throws(()=>validateOptions({...options,market:'futures',interval:'1d'}));
   assert.throws(()=>validateCandles(bars([100,100]).map((c,i)=>({...c,time:c.time+i})),hour));
