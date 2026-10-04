@@ -304,15 +304,19 @@ function buildMask(base, baseInterval, frame, condition) {
 }
 function searchPortfolio(data, candidate, options, range, masksByAsset) {
   const parts = data.map((d, assetIndex) => {
+    const start = d.candles.findIndex(c => c.time === range.startTime);
+    const endIndex = d.candles.findIndex(c => c.time === range.endTime);
+    const end = endIndex < 0 ? d.candles.length : endIndex;
+    if (start < 0 || end <= start) throw new Error('自動搜尋跨幣種 K 線無法按時間對齊');
     const signals = new Uint8Array(d.candles.length), masks = masksByAsset[assetIndex];
-    for (let i = range.start; i < range.end; i++) {
+    for (let i = start; i < end; i++) {
       let match = true;
       for (const c of candidate.combination.conditions) if (!masks.get(atomKey(c))[i]) { match = false; break; }
       if (match) signals[i] = candidate.combination.side === 'long' ? 1 : 2;
     }
     return simulate(d, { id: candidate.id }, {
       ...options, capital: options.capital / data.length, stopLoss: candidate.stopLoss, takeProfit: candidate.takeProfit, trailingStop: 0,
-    }, range, signals);
+    }, { start, end }, signals);
   });
   const equity = parts[0].equity.map((p, i) => ({ time: p.time, value: parts.reduce((s, r) => s + r.equity[i].value, 0) }));
   const trades = parts.flatMap(p => p.trades).sort((a, b) => a.exitTime - b.exitTime);
@@ -358,13 +362,16 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
   const commonStart = Math.max(...data.map(d => d.candles.find(c => c.time >= options.startTime)?.time ?? Infinity));
   const commonEnd = Math.min(...data.map(d => d.candles.at(-1).time));
   if (!Number.isFinite(commonStart) || commonEnd <= commonStart) throw new Error('沒有共同可用的搜尋期間');
-  const start = data[0].candles.findIndex(c => c.time === commonStart);
-  const end = data[0].candles.findIndex(c => c.time === commonEnd) + 1;
-  if (start < 200 || end - start < 160) throw new Error('自動搜尋至少需要 160 根共同研究 K 線與暖機資料');
+  const bars = Math.round((commonEnd - commonStart) / intervals['15m']) + 1;
+  if (bars < 160) throw new Error('自動搜尋至少需要 160 根共同研究 K 線與暖機資料');
   for (const d of data) {
-    if (d.candles[start]?.time !== commonStart || d.candles[end - 1]?.time !== commonEnd) throw new Error('跨幣種 15m K 線無法對齊');
+    const startIndex = d.candles.findIndex(c => c.time === commonStart);
+    const endIndex = d.candles.findIndex(c => c.time === commonEnd);
+    if (startIndex < 200 || endIndex < startIndex || endIndex - startIndex + 1 !== bars) throw new Error('跨幣種 15m K 線無法按共同時間對齊');
   }
-  const split = start + Math.floor((end - start) * .7);
+  const splitBars = Math.floor(bars * .7);
+  const splitTime = commonStart + splitBars * intervals['15m'];
+  const endExclusive = commonEnd + intervals['15m'];
   const usedAtoms = new Map();
   for (const candidate of generated.candidates) for (const c of candidate.combination.conditions) usedAtoms.set(atomKey(c), c);
   const masksByAsset = data.map((d, assetIndex) => {
@@ -374,8 +381,8 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
     return masks;
   });
   const ranking = generated.candidates.map((candidate, index) => {
-    const trainReport = searchPortfolio(data, candidate, options, { start, end: split }, masksByAsset);
-    const testReport = searchPortfolio(data, candidate, options, { start: split, end }, masksByAsset);
+    const trainReport = searchPortfolio(data, candidate, options, { startTime: commonStart, endTime: splitTime }, masksByAsset);
+    const testReport = searchPortfolio(data, candidate, options, { startTime: splitTime, endTime: endExclusive }, masksByAsset);
     const trainScore = scoreSearchResult(trainReport, config.minTrades), testScore = scoreSearchResult(testReport, config.minTrades);
     onProgress(8 + Math.round((index + 1) / generated.candidates.length * 82), `自動搜尋 ${index + 1} / ${generated.candidates.length}`);
     return {
@@ -388,17 +395,23 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
   const display = winners.stability ?? ranking.slice().sort((a, b) => b.train.trades - a.train.trades || b.train.totalReturn - a.train.totalReturn)[0];
   if (!display) throw new Error('沒有可用的候選策略');
   const displayCandidate = { id: display.id, combination: display.combination, stopLoss: display.stopLoss, takeProfit: display.takeProfit };
-  const full = searchPortfolio(data, displayCandidate, options, { start, end }, masksByAsset);
-  const test = searchPortfolio(data, displayCandidate, options, { start: split, end }, masksByAsset);
-  const benchmark = (from, to) => data[0].candles.slice(from, to).map((c, i, all) => ({
-    time: c.time,
-    value: data.reduce((sum, d) => {
-      const capital = options.capital / data.length, entry = d.candles[from].open * (1 + options.slippage);
-      const qty = capital / (entry * (1 + options.fee));
-      return sum + qty * d.candles[from + i].close * (i === all.length - 1 ? (1 - options.slippage) * (1 - options.fee) : 1);
-    }, 0),
-  }));
-  full.benchmark = benchmark(start, end); test.benchmark = benchmark(split, end);
+  const full = searchPortfolio(data, displayCandidate, options, { startTime: commonStart, endTime: endExclusive }, masksByAsset);
+  const test = searchPortfolio(data, displayCandidate, options, { startTime: splitTime, endTime: endExclusive }, masksByAsset);
+  const benchmark = (fromTime, toTime) => {
+    const baseStart = data[0].candles.findIndex(c => c.time === fromTime);
+    const baseEndFound = data[0].candles.findIndex(c => c.time === toTime);
+    const baseEnd = baseEndFound < 0 ? data[0].candles.length : baseEndFound;
+    return data[0].candles.slice(baseStart, baseEnd).map((c, i, all) => ({
+      time: c.time,
+      value: data.reduce((sum, d) => {
+        const from = d.candles.findIndex(x => x.time === fromTime);
+        const capital = options.capital / data.length, entry = d.candles[from].open * (1 + options.slippage);
+        const qty = capital / (entry * (1 + options.fee));
+        return sum + qty * d.candles[from + i].close * (i === all.length - 1 ? (1 - options.slippage) * (1 - options.fee) : 1);
+      }, 0),
+    }));
+  };
+  full.benchmark = benchmark(commonStart, endExclusive); test.benchmark = benchmark(splitTime, endExclusive);
   const winnerSummary = {};
   for (const [kind, row] of Object.entries(winners)) if (row) winnerSummary[kind] = { ...row, explanation: explainSearchCandidate(row, kind, config.minTrades) };
   const best = { id: 'combination-search', name: '條件組合自動搜尋', params: {}, indicators: '跨週期 AND 自動搜尋', combination: display.combination };
@@ -410,8 +423,8 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
     })),
     metadata: {
       mode: 'combination-search', generatedAt: new Date().toISOString(), sources: raw.map(d => ({ symbol: d.symbol, source: d.source, fetchedAt: d.fetchedAt })),
-      symbols: raw.map(d => d.symbol), start: data[0].candles[start].time, end: data[0].candles[end - 1].time, split: data[0].candles[split].time,
-      bars: end - start, candidates: generated.candidates.length, candidateSpace: generated.totalSpace, riskProfiles: generated.riskProfiles,
+      symbols: raw.map(d => d.symbol), start: commonStart, end: commonEnd, split: splitTime,
+      bars, candidates: generated.candidates.length, candidateSpace: generated.totalSpace, riskProfiles: generated.riskProfiles,
       minTrades: config.minTrades, commonPeriodTrimmed: commonStart > options.startTime + intervals['15m'],
       warnings: [
         `搜尋只用前 70% 資料選候選，最後 30% 僅作未見樣本驗證；共實測 ${generated.candidates.length} 組，理論搜尋空間約 ${generated.totalSpace.toLocaleString()} 組。`,
