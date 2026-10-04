@@ -251,6 +251,9 @@ function strategyChanged() {
   $('#custom-builder').classList.toggle('hidden', id !== 'custom');
   $('#combination-builder').classList.toggle('hidden', id !== 'combination');
   $('#interval').disabled = id === 'combination';
+  $('#optimize-row')?.classList.toggle('hidden', id === 'combination');
+  $('.standard-risk-only').forEach(el => el.classList.toggle('hidden', id === 'combination'));
+  $('#combo-advanced-note')?.classList.toggle('hidden', id !== 'combination');
   if (id === 'combination') { $('#strategy-hint').textContent = '依你勾選的條件測整段期間，不自動選策略。每個幣種都會列出淨報酬、勝率、交易次數、最大回撤。'; updateCombinationDescription(); markDirty(); return; }
   if (id === 'auto') $('#strategy-hint').textContent = '最適合第一次使用：系統會把所有方法都跑一次，再把結果並排給你看。';
   else if (id === 'custom') $('#strategy-hint').textContent = '你可以自己設定買進與賣出條件；第一次使用可先跳過。';
@@ -414,7 +417,13 @@ function renderResults() {
   if (combo) {
     if (['walk', 'indicators'].includes(state.tab)) state.tab = 'stats';
     const profitable = report.assets.filter(a => a.totalReturn > 0 && a.trades > 0).length;
-    $('#combination-results').innerHTML = `<div class="panel-heading"><div><h3>所有勾選幣種是否全部正報酬</h3><p>完整共同期間 · 已扣手續費、滑價與合約資金費率</p></div></div><p id="all-positive" class="combo-verdict ${report.allPositive ? 'positive' : 'negative'}">${report.allPositive ? '是，全部正報酬' : '否，並非全部正報酬'}（${profitable} / ${report.assets.length}）</p><div class="table-scroll"><table><thead><tr><th>幣種</th><th>淨報酬</th><th>勝率</th><th>交易次數</th><th>最大回撤</th><th>結果</th></tr></thead><tbody id="combination-assets">${report.assets.map(a => `<tr><td>${esc(a.symbol)}</td><td class="mono ${color(a.totalReturn)}">${pct(a.totalReturn)}</td><td class="mono">${a.trades ? `${num(a.winRate)}%` : '—'}</td><td>${a.trades}</td><td class="mono negative">${num(a.maxDrawdown)}%</td><td>${!a.trades ? '無交易' : a.totalReturn > 0 ? '正報酬' : a.totalReturn < 0 ? '虧損' : '零報酬'}</td></tr>`).join('')}</tbody></table></div><p class="detail-note">零報酬、無交易不算正報酬。所有幣種均有完整結果才會顯示「是」。示範資料僅供練習；歷史結果不代表未來。</p>`;
+    const diagnostics = result.metadata.signalDiagnostics ?? [];
+    const diagnosticRows = diagnostics.map(d => {
+      const asset = report.assets.find(a => a.symbol === d.symbol);
+      const detail = d.conditions.map(c => `${c.interval} ${conditionCatalog[c.type]}${c.type.startsWith('rsi') ? ` ${c.threshold}` : ''}：${c.hits} 次`).join('；');
+      return `<tr><td>${esc(d.symbol)}</td><td>${d.readyBars}</td><td class="mono ${d.combinedHits ? 'positive' : 'negative'}">${d.combinedHits}</td><td>${asset?.trades ?? 0}</td><td class="signal-detail">${esc(detail)}</td></tr>`;
+    }).join('');
+    $('#combination-results').innerHTML = `<div class="panel-heading"><div><h3>所有勾選幣種是否全部正報酬</h3><p>完整共同期間 · 已扣手續費、滑價與合約資金費率</p></div></div><p id="all-positive" class="combo-verdict ${report.allPositive ? 'positive' : 'negative'}">${report.allPositive ? '是，全部正報酬' : '否，並非全部正報酬'}（${profitable} / ${report.assets.length}）</p><div class="table-scroll"><table><thead><tr><th>幣種</th><th>淨報酬</th><th>勝率</th><th>交易次數</th><th>最大回撤</th><th>結果</th></tr></thead><tbody id="combination-assets">${report.assets.map(a => `<tr><td>${esc(a.symbol)}</td><td class="mono ${color(a.totalReturn)}">${pct(a.totalReturn)}</td><td class="mono">${a.trades ? `${num(a.winRate)}%` : '—'}</td><td>${a.trades}</td><td class="mono negative">${num(a.maxDrawdown)}%</td><td>${!a.trades ? '無交易' : a.totalReturn > 0 ? '正報酬' : a.totalReturn < 0 ? '虧損' : '零報酬'}</td></tr>`).join('')}</tbody></table></div><details class="signal-diagnostics" ${report.stats.trades === 0 ? 'open' : ''}><summary>為什麼有／沒有開單？查看訊號診斷</summary><p>「單一條件命中」代表該條件自己成立；「全部同時成立」才會產生進場訊號。交叉與 K 線型態只在發生的那根收盤時算成立。</p><div class="table-scroll"><table><thead><tr><th>幣種</th><th>可判定 K 線</th><th>全部同時成立</th><th>實際交易</th><th>各條件命中次數</th></tr></thead><tbody id="signal-diagnostics-body">${diagnosticRows}</tbody></table></div></details><p class="detail-note">零報酬、無交易不算正報酬。若「全部同時成立」是 0，表示 AND 條件在本期間沒有同時出現，不是資金 5 USDT 阻止下單。示範資料僅供練習；歷史結果不代表未來。</p>`;
   }
   const benchmarkReturn = (report.benchmark.at(-1).value / result.options.capital - 1) * 100;
   $('#report-state').textContent = `${source === 'synthetic' ? '合成示範結果' : '幣安資料'} · ${result.options.market === 'spot' ? '現貨' : `${result.options.leverage}× 合約`} · ${result.metadata.symbols.join(' / ')}`;
@@ -426,7 +435,8 @@ function renderResults() {
   ];
   $('#summary').innerHTML = cards.map(([label, value, cls, sub, icon]) => `<div class="stat-card"><div class="stat-label">${label}<span>${icon}</span></div><div class="stat-value ${cls}">${value}</div><div class="stat-sub">${sub}</div></div>`).join('');
   const plain = beginnerStrategy(result.best);
-  $('#plain-summary').innerHTML = `<div class="plain-strategy"><span class="plain-kicker">這次系統選到的交易方法</span><h3>${esc(plain.name)}</h3><small>原技術名稱：${esc(plain.technical)} · ${esc(plain.indicators)}</small><p><b>怎麼買、怎麼賣：</b>${esc(plain.rule)}</p></div><div class="plain-result"><strong class="${color(s.totalReturn)}">${s.totalReturn >= 0 ? '這次回測有獲利' : '這次回測是虧損'} ${pct(s.totalReturn)}</strong><span>假設 ${num(result.options.capital)} ${result.metadata.quote} → ${num(s.endValue)} ${result.metadata.quote}</span><span>過程中從高點最多曾回落 ${num(s.maxDrawdown)}%</span><em>這只是歷史資料模擬，不代表之後一定會有相同結果。</em></div>`;
+  const resultText = s.trades === 0 ? '沒有開單（0 筆交易）' : s.totalReturn > 0 ? `這次回測有獲利 ${pct(s.totalReturn)}` : s.totalReturn < 0 ? `這次回測是虧損 ${pct(s.totalReturn)}` : '有交易，但總報酬為 0.00%';
+  $('#plain-summary').innerHTML = `<div class="plain-strategy"><span class="plain-kicker">這次系統選到的交易方法</span><h3>${esc(plain.name)}</h3><small>原技術名稱：${esc(plain.technical)} · ${esc(plain.indicators)}</small><p><b>怎麼買、怎麼賣：</b>${esc(plain.rule)}</p></div><div class="plain-result"><strong class="${s.trades === 0 ? 'amber' : color(s.totalReturn)}">${resultText}</strong><span>假設 ${num(result.options.capital)} ${result.metadata.quote} → ${num(s.endValue)} ${result.metadata.quote}</span><span>過程中從高點最多曾回落 ${num(s.maxDrawdown)}%</span><em>${s.trades === 0 && combo ? '請展開上方「訊號診斷」，查看是哪個 AND 條件沒有同時成立。' : '這只是歷史資料模擬，不代表之後一定會有相同結果。'}</em></div>`;
   $('#chart-caption').textContent = `${plain.name} · ${source === 'synthetic' ? '練習用示範資料' : 'Binance 歷史資料'} · ${state.range === 'test' ? '最後 30% 資料另外測試' : '整段歷史資料'}`;
   if (combo) $('#plain-summary .plain-kicker').textContent = '你勾選的 AND 進場條件';
   $('#chart-unit').textContent = result.metadata.quote;
