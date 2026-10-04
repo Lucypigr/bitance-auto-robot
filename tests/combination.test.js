@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyze, intervals } from '../src/backtest.js';
-import { allAssetsPositive, buildCombinationSignals, conditionMatches, executionInterval, validateCombination } from '../src/combination.js';
+import { allAssetsPositive, buildCombinationSignals, conditionMatches, executionInterval, validateCombination, generateSearchCandidates, scoreSearchResult, pickSearchWinners } from '../src/combination.js';
 import { demoHistory } from '../src/demo.js';
 import { parseHistoryQuery } from '../src/binance.js';
 import { detectPattern, patternCatalog } from '../src/patterns.js';
@@ -136,6 +136,61 @@ test('signal diagnostics explain why an AND combination creates no entry', () =>
   assert.equal(result.diagnostics.combinedHits, 0);
   assert.equal(result.diagnostics.conditionHits.length, 2);
   assert.ok(result.diagnostics.readyBars > 0);
+});
+test('auto-search candidate generation is bounded, deterministic, side-aware and risk-aware', () => {
+  const a = generateSearchCandidates({ maxConditions: 3, maxCandidates: 60, side: 'auto', riskSearch: false, stopLoss: .02, takeProfit: .04 }, 'futures');
+  const b = generateSearchCandidates({ maxConditions: 3, maxCandidates: 60, side: 'auto', riskSearch: false, stopLoss: .02, takeProfit: .04 }, 'futures');
+  assert.equal(a.candidates.length, 60);
+  assert.deepEqual(a.candidates, b.candidates);
+  assert.ok(a.totalSpace > a.candidates.length);
+  assert.ok(a.candidates.some(x => x.combination.side === 'long'));
+  assert.ok(a.candidates.some(x => x.combination.side === 'short'));
+  assert.ok(a.candidates.every(x => x.combination.conditions.length >= 1 && x.combination.conditions.length <= 3));
+  const spot = generateSearchCandidates({ maxConditions: 2, maxCandidates: 30, side: 'auto' }, 'spot');
+  assert.ok(spot.candidates.every(x => x.combination.side === 'long'));
+  const risk = generateSearchCandidates({ maxConditions: 2, maxCandidates: 40, side: 'long', riskSearch: true }, 'futures');
+  assert.equal(risk.candidates.length, 40);
+  assert.ok(new Set(risk.candidates.map(x => x.stopLoss)).size > 1);
+  assert.ok(new Set(risk.candidates.map(x => x.takeProfit)).size > 1);
+});
+test('auto-search minimum trade gate blocks tiny 100% win-rate samples', () => {
+  const tiny = { stats: { trades: 2, liquidations: 0, winRate: 100, totalReturn: 20, maxDrawdown: -1, sharpe: 5, sortino: 6, profitFactor: null, noLosses: true }, assets: [{ trades: 2, totalReturn: 20 }] };
+  const robust = { stats: { trades: 30, liquidations: 0, winRate: 65, totalReturn: 12, maxDrawdown: -5, sharpe: 1.5, sortino: 2, profitFactor: 1.8, noLosses: false }, assets: [{ trades: 30, totalReturn: 12 }] };
+  const tinyScore = scoreSearchResult(tiny, 20), robustScore = scoreSearchResult(robust, 20);
+  assert.equal(tinyScore.eligible, false); assert.equal(robustScore.eligible, true);
+  const ranking = [
+    { id: 'tiny', train: tiny.stats, test: { ...tiny.stats, totalReturn: 999 }, trainScore: tinyScore },
+    { id: 'robust', train: robust.stats, test: { ...robust.stats, totalReturn: -999 }, trainScore: robustScore },
+  ];
+  const winners = pickSearchWinners(ranking, 20);
+  assert.equal(winners.winRate.id, 'robust');
+  assert.equal(winners.stability.id, 'robust');
+  assert.equal(winners.return.id, 'robust');
+});
+test('auto-search winners depend on training scores, not holdout performance', () => {
+  const base = { trades: 30, liquidations: 0, winRate: 60, totalReturn: 5, maxDrawdown: -5, sharpe: 1, sortino: 1.2, profitFactor: 1.5, noLosses: false };
+  const ranking = [
+    { id: 'train-winner', train: base, test: { ...base, totalReturn: -90 }, trainScore: { eligible: true, winRateScore: 70, stabilityScore: 20, returnScore: 30 } },
+    { id: 'holdout-winner', train: base, test: { ...base, totalReturn: 900 }, trainScore: { eligible: true, winRateScore: 60, stabilityScore: 10, returnScore: 20 } },
+  ];
+  const winners = pickSearchWinners(ranking, 20);
+  assert.equal(winners.winRate.id, 'train-winner');
+  assert.equal(winners.stability.id, 'train-winner');
+  assert.equal(winners.return.id, 'train-winner');
+});
+test('auto-search runs bounded demo candidates with a true 70/30 holdout', () => {
+  const startTime = Date.UTC(2025, 0, 1), endTime = Date.UTC(2025, 0, 10);
+  const options = { ...settings, market: 'futures', interval: '15m', strategy: 'combination-search', startTime, endTime, capital: 1000, leverage: 2, allocation: .95, stopLoss: .02, takeProfit: .04,
+    search: { side: 'auto', maxConditions: 2, maxCandidates: 12, minTrades: 1, riskSearch: false } };
+  const base = demoHistory('BTCUSDT', '15m', startTime, endTime, 'futures');
+  base.timeframes = Object.fromEntries(['1h','4h','1d'].map(interval => [interval, demoHistory('BTCUSDT', interval, startTime, endTime, 'futures').candles]));
+  const result = analyze([base], options);
+  assert.equal(result.metadata.mode, 'combination-search');
+  assert.equal(result.metadata.candidates, 12);
+  assert.ok(result.metadata.split > result.metadata.start && result.metadata.split < result.metadata.end);
+  assert.equal(result.searchRanking.length, 12);
+  assert.ok(result.test.equity.length < result.full.equity.length);
+  assert.equal(result.options.interval, '15m');
 });
 test('missing timeframe fails explicitly; no trades yields zero return and false all-positive', () => {
   const raw = [demoHistory('BTCUSDT', '1h', settings.startTime, settings.endTime)];
