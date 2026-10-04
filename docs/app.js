@@ -17,7 +17,7 @@ const datetime = time => new Date(time).toISOString().slice(0, 16).replace('T', 
 const compact = v => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(v);
 const price = v => num(v, v < 1 ? 6 : v < 100 ? 3 : 2);
 const MAX_SYMBOLS = 15;
-const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT', pickingMovers: false, candleSymbol: null, candleOffset: 0, candleWindow: 120 };
+const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT', pickingMovers: false, candleSymbol: null, candleOffset: 0, candleWindow: 120, searchSort: 'stabilityScore' };
 const beginnerStrategyGuide = {
   trend: { name: '順著強勢趨勢走', intro: '只在方向很明顯時跟著趨勢進場。' },
   rsi: { name: '超跌後等反彈', intro: '價格短線跌太多時買進，恢復正常後離場。' },
@@ -32,7 +32,7 @@ const beginnerStrategyGuide = {
   custom: { name: '我的自訂規則', intro: '使用你自己設定的進場與出場條件。' }
 };
 function beginnerStrategy(strategy) {
-  if (strategy?.id === 'combination') return { name: '條件組合回測', technical: '跨週期 AND', indicators: '只用已收盤 K 線', rule: strategy.combination.conditions.map(c => `${c.interval} ${conditionCatalog[c.type]}${c.type.startsWith('rsi') ? ` ${c.threshold}` : ''}`).join(' ＋ ') + `，全部符合才${strategy.combination.side === 'long' ? '做多' : '做空'}；停損、停利或期末平倉。` };
+  if (strategy?.id === 'combination' || strategy?.id === 'combination-search') return { name: strategy.id === 'combination-search' ? '條件組合自動搜尋' : '條件組合回測', technical: strategy.id === 'combination-search' ? '跨週期 AND 自動搜尋' : '跨週期 AND', indicators: '只用已收盤 K 線', rule: strategy.combination.conditions.map(c => `${c.interval} ${conditionCatalog[c.type]}${c.type.startsWith('rsi') ? ` ${c.threshold}` : ''}`).join(' ＋ ') + `，全部符合才${strategy.combination.side === 'long' ? '做多' : '做空'}；停損、停利或期末平倉。` };
   const key = strategy?.id?.split(':')[0] ?? 'custom';
   const p = strategy?.params ?? {};
   const base = beginnerStrategyGuide[key] ?? beginnerStrategyGuide.custom;
@@ -247,14 +247,16 @@ function updateCombinationDescription() {
   $('#combination-description').textContent = combination.conditions.length ? `已勾選 ${combination.conditions.length} 個 AND 條件。成交檢查週期：${executionInterval(combination, state.market)}。交叉只在發生那根收盤時成立。` : '請至少勾選一個條件。';
 }
 function strategyChanged() {
-  const id = $('#strategy').value;
+  const id = $('#strategy').value, structured = id === 'combination' || id === 'combination-search';
   $('#custom-builder').classList.toggle('hidden', id !== 'custom');
   $('#combination-builder').classList.toggle('hidden', id !== 'combination');
-  $('#interval').disabled = id === 'combination';
-  $('#optimize-row')?.classList.toggle('hidden', id === 'combination');
-  document.querySelectorAll('.standard-risk-only').forEach(el => el.classList.toggle('hidden', id === 'combination'));
-  $('#combo-advanced-note')?.classList.toggle('hidden', id !== 'combination');
+  $('#combination-search-builder')?.classList.toggle('hidden', id !== 'combination-search');
+  $('#interval').disabled = structured;
+  $('#optimize-row')?.classList.toggle('hidden', structured);
+  document.querySelectorAll('.standard-risk-only').forEach(el => el.classList.toggle('hidden', structured));
+  $('#combo-advanced-note')?.classList.toggle('hidden', !structured);
   if (id === 'combination') { $('#strategy-hint').textContent = '依你勾選的條件測整段期間，不自動選策略。每個幣種都會列出淨報酬、勝率、交易次數、最大回撤。'; updateCombinationDescription(); markDirty(); return; }
+  if (id === 'combination-search') { $('#strategy-hint').textContent = '系統會用前 70% 資料搜尋合理的跨週期 AND 組合，再用最後 30% 未見資料驗證，分別找出勝率最高、最穩定與獲利最多。'; markDirty(); return; }
   if (id === 'auto') $('#strategy-hint').textContent = '最適合第一次使用：系統會把所有方法都跑一次，再把結果並排給你看。';
   else if (id === 'custom') $('#strategy-hint').textContent = '你可以自己設定買進與賣出條件；第一次使用可先跳過。';
   else { const s = strategyCatalog.find(s => s.id === id); const plain = beginnerStrategy(s); $('#strategy-hint').textContent = `${plain.intro} 具體規則：${plain.rule}`; }
@@ -271,6 +273,18 @@ function readOptions() {
     o.stopLoss = Number($('#combo-stop').value) / 100; o.takeProfit = Number($('#combo-target').value) / 100; o.trailingStop = 0;
     if (o.market === 'spot' && o.combination.side === 'short') throw new Error('做空請先切換至「永續合約」');
     if (!(o.stopLoss > 0) || !(o.takeProfit > 0)) throw new Error('條件組合回測的停損與停利必須大於 0');
+  } else if (o.strategy === 'combination-search') {
+    o.interval = '15m'; o.optimize = false; o.trailingStop = 0;
+    o.stopLoss = Number($('#search-stop').value) / 100; o.takeProfit = Number($('#search-target').value) / 100;
+    o.search = {
+      side: $('#search-side').value,
+      maxConditions: Number($('#search-max-conditions').value),
+      maxCandidates: Number($('#search-max-candidates').value),
+      minTrades: Number($('#search-min-trades').value),
+      riskSearch: $('#search-risk').checked,
+    };
+    if (o.market === 'spot' && o.search.side === 'short') throw new Error('現貨自動搜尋不能只找做空，請改成「自動」或「只找做多」');
+    if (!(o.stopLoss > 0) || !(o.takeProfit > 0)) throw new Error('自動搜尋的固定停損與停利必須大於 0');
   }
   validateOptions(o);
   if (!state.symbols.length) throw new Error('請至少選擇一個交易對');
@@ -283,7 +297,7 @@ function busy(active) {
   $$('#config-form input, #config-form select, #config-form button').forEach(el => { el.disabled = active; });
   $('#cancel-button').disabled = false; $('#cancel-button').classList.toggle('hidden', !active);
   $('#run-button').innerHTML = active ? '<span>◌</span> 正在用歷史資料模擬買賣… <span>↗</span>' : '<span>▷</span> 開始回測 <span>↗</span>';
-  if (!active) $('#interval').disabled = $('#strategy').value === 'combination';
+  if (!active) $('#interval').disabled = ['combination', 'combination-search'].includes($('#strategy').value);
 }
 function progress(value, message) { $('#progress>span').textContent = message; $('#progress i').style.width = `${value}%`; }
 async function runBacktest() {
@@ -307,9 +321,10 @@ async function runBacktest() {
         data = await res.json(); if (!res.ok) throw new Error(data.error);
       }
       if (controller.signal.aborted) throw new DOMException('已停止', 'AbortError');
-      if (options.strategy === 'combination') {
+      if (options.strategy === 'combination' || options.strategy === 'combination-search') {
         data.timeframes = {};
-        for (const interval of new Set(options.combination.conditions.map(c => c.interval))) {
+        const neededIntervals = options.strategy === 'combination-search' ? combinationIntervals : [...new Set(options.combination.conditions.map(c => c.interval))];
+        for (const interval of neededIntervals) {
           if (interval === options.interval) continue;
           progress(3 + 12 * i / symbols.length, `下載 ${symbol} 的 ${interval} 已收盤條件資料與暖機…`);
           const query = { market: options.market, symbol, interval, startTime: options.startTime, endTime: options.endTime, signalOnly: true };
@@ -340,10 +355,10 @@ async function runBacktest() {
       worker.postMessage({ datasets, options });
     });
     result.metadata.quote = state.quote;
-    state.datasets = datasets; state.result = result; state.range = options.strategy === 'combination' ? 'full' : 'test'; state.tradePage = 0;
+    state.datasets = datasets; state.result = result; state.range = options.strategy === 'combination' ? 'full' : 'test'; state.tradePage = 0; state.candleOffset = 0;
     renderResults(); progress(100, `${result.metadata.bars.toLocaleString()} 根 K 線 · ${result.metadata.candidates} 組候選 · 已完成`);
     if (result.metadata.commonPeriodTrimmed) notice('部分交易對歷史不足，回測已使用各交易對共同可用、完成暖機後的期間。請以圖表日期為準。');
-    toast(options.strategy === 'combination' ? '條件組合回測完成，請查看逐幣結果' : '回測完成，已產生樣本外與滾動驗證報告');
+    toast(options.strategy === 'combination' ? '條件組合回測完成，請查看逐幣結果' : options.strategy === 'combination-search' ? '自動搜尋完成，請查看三種冠軍與樣本外驗證' : '回測完成，已產生樣本外與滾動驗證報告');
   } catch (e) {
     if (e.name === 'AbortError') progress(0, '本次回測已停止');
     else { notice(e.message); progress(0, '回測未完成，請檢查上述訊息'); }
@@ -357,7 +372,7 @@ function buildCandlestickMarkers(dataset) {
   const showPatterns = $('#candle-show-patterns')?.checked !== false;
   const showSignals = $('#candle-show-signals')?.checked !== false;
   const showTrades = $('#candle-show-trades')?.checked !== false;
-  if (showPatterns && options.strategy === 'combination') {
+  if (showPatterns && ['combination', 'combination-search'].includes(options.strategy)) {
     for (const condition of options.combination.conditions.filter(c => Object.hasOwn(patternCatalog, c.type))) {
       const candles = condition.interval === options.interval ? dataset.candles : dataset.timeframes?.[condition.interval];
       if (!candles) continue;
@@ -367,7 +382,7 @@ function buildCandlestickMarkers(dataset) {
       });
     }
   }
-  if (showSignals && options.strategy === 'combination') {
+  if (showSignals && ['combination', 'combination-search'].includes(options.strategy)) {
     try {
       const timeframes = { ...(dataset.timeframes ?? {}), [options.interval]: dataset.candles };
       const { signals } = buildCombinationSignals(dataset.candles, timeframes, options.combination, options.interval);
@@ -406,14 +421,55 @@ function renderCandlestick() {
   $('#candle-older').disabled = start === 0;
   $('#candle-newer').disabled = end >= all.length;
 }
+function renderSearchResults() {
+  const result = state.result, container = $('#search-results');
+  if (!container || result?.metadata.mode !== 'combination-search') return;
+  const winnerMeta = [
+    ['winRate', '◎ 勝率最高', '在符合最低交易數的候選中，訓練段勝率最高。'],
+    ['stability', '◇ 最穩定', '綜合 Sharpe、Sortino、獲利因子、回撤、交易數與跨幣一致性。'],
+    ['return', '↗ 獲利最多', '在符合最低交易數的候選中，兼顧回撤與跨幣一致性後報酬最高。'],
+  ];
+  const card = ([key, title, subtitle]) => {
+    const row = result.winners?.[key];
+    if (!row) return `<article class="search-winner-card unavailable"><span class="search-winner-kicker">${title}</span><h3>沒有候選達到門檻</h3><p>目前沒有策略在訓練段同時達到至少 ${result.metadata.minTrades} 筆交易且沒有估計清算。可增加日期、降低最低交易數或放寬候選條件。</p></article>`;
+    const h = row.test, ratio = Math.round((row.testAssetsPositive ?? row.testScore?.consistency ?? 0) * 100);
+    return `<article class="search-winner-card"><span class="search-winner-kicker">${title}</span><h3>${row.combination.side === 'long' ? '做多' : '做空'} · ${row.description}</h3><p class="search-card-sub">${subtitle}</p><div class="search-metrics"><span>樣本外勝率 <b>${num(h.winRate,1)}%</b></span><span>樣本外報酬 <b class="${color(h.totalReturn)}">${pct(h.totalReturn)}</b></span><span>最大回撤 <b class="negative">${num(h.maxDrawdown)}%</b></span><span>交易 <b>${h.trades}</b></span><span>Profit Factor <b>${h.noLosses ? '無虧損' : num(h.profitFactor)}</b></span><span>跨幣正報酬 <b>${ratio}%</b></span></div><p><strong>設定：</strong>${result.options.market === 'futures' ? `${result.options.leverage}× 合約 · ` : ''}停損 ${num(row.stopLoss*100,1)}% · 停利 ${num(row.takeProfit*100,1)}%</p><p><strong>為什麼：</strong>${esc(row.explanation.why)}</p><p class="search-risk"><strong>風險：</strong>${esc(row.explanation.risk)}</p><button type="button" class="secondary" data-apply-search="${row.id}">套用到手動條件組合 →</button></article>`;
+  };
+  const rows = [...(result.searchRanking ?? [])];
+  const sort = state.searchSort;
+  rows.sort((a,b) => {
+    if (sort === 'winRateScore') return b.trainScore.winRateScore - a.trainScore.winRateScore;
+    if (sort === 'returnScore') return b.trainScore.returnScore - a.trainScore.returnScore;
+    if (sort === 'drawdown') return b.test.maxDrawdown - a.test.maxDrawdown;
+    if (sort === 'trades') return b.test.trades - a.test.trades;
+    if (sort === 'consistency') return b.testScore.consistency - a.testScore.consistency;
+    return b.trainScore.stabilityScore - a.trainScore.stabilityScore;
+  });
+  const rankingRows = rows.slice(0, 100).map((row, i) => `<tr><td><span class="rank-number">${String(i+1).padStart(2,'0')}</span><strong>${row.combination.side === 'long' ? '多' : '空'}</strong><span class="strategy-sub">${esc(row.description)}</span></td><td class="mono ${color(row.test.totalReturn)}">${pct(row.test.totalReturn)}</td><td class="mono">${num(row.test.winRate,1)}%</td><td class="mono negative">${num(row.test.maxDrawdown)}%</td><td>${row.test.trades}</td><td class="mono">${row.test.noLosses ? '∞' : num(row.test.profitFactor)}</td><td class="mono">${Math.round(row.testScore.consistency*100)}%</td><td><button type="button" class="add-market" data-apply-search="${row.id}">套用</button></td></tr>`).join('');
+  container.innerHTML = `<div class="panel-heading"><div><h3>條件組合自動搜尋</h3><p>理論合理組合空間約 ${result.metadata.candidateSpace.toLocaleString()} 組；實際受候選上限控制，測試 ${result.metadata.candidates} 組。冠軍只用前 70% 選出，下面數字以最後 30% 樣本外為主。</p></div><span class="outline-badge">70% 選候選 / 30% 驗證</span></div><div class="search-winner-grid">${winnerMeta.map(card).join('')}</div><div class="search-ranking-head"><div><h3>全部候選排行</h3><p>排序會改變表格，不會重新挑冠軍或偷看樣本外。</p></div><label>排序<select id="search-ranking-sort"><option value="stabilityScore">穩定度</option><option value="winRateScore">勝率</option><option value="returnScore">報酬</option><option value="drawdown">最大回撤</option><option value="trades">交易次數</option><option value="consistency">跨幣一致性</option></select></label></div><div class="table-scroll"><table><thead><tr><th>候選條件</th><th>樣本外報酬</th><th>勝率</th><th>最大回撤</th><th>交易數</th><th>PF</th><th>跨幣正報酬</th><th></th></tr></thead><tbody id="search-ranking-body">${rankingRows}</tbody></table></div><p class="detail-note">目前 K 線圖顯示「最穩定」冠軍的樣本外交易；若要深入看其他候選，按「套用」會把它完整帶回手動條件組合，再重新回測即可查看所有訊號與交易。</p>`;
+  $('#search-ranking-sort').value = state.searchSort;
+}
+function applySearchCandidate(id) {
+  const row = state.result?.searchRanking?.find(r => r.id === id);
+  if (!row || state.running) return;
+  $('#strategy').value = 'combination';
+  initCombination(row.combination);
+  $('#combo-stop').value = String(row.stopLoss * 100);
+  $('#combo-target').value = String(row.takeProfit * 100);
+  strategyChanged();
+  notice(`已套用自動搜尋候選：${row.description}。請按「開始回測」查看完整 K 線訊號與逐筆交易。`);
+  $('#strategy').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 function renderResults() {
   if (!state.result) return;
   const result = state.result, report = currentReport(), s = report.stats, source = result.metadata.sources[0].source;
-  const combo = result.metadata.mode === 'combination';
+  const combo = result.metadata.mode === 'combination', search = result.metadata.mode === 'combination-search';
   $('#combination-results').classList.toggle('hidden', !combo);
-  $('.ranking-panel').classList.toggle('hidden', combo);
+  $('#search-results')?.classList.toggle('hidden', !search);
+  $('.ranking-panel').classList.toggle('hidden', combo || search);
   $('#range-selector').classList.toggle('hidden', combo);
-  $$('[data-tab="walk"], [data-tab="indicators"]').forEach(el => el.classList.toggle('hidden', combo));
+  $('[data-tab="walk"], [data-tab="indicators"]').forEach(el => el.classList.toggle('hidden', combo || search));
+  if (search) { if (['walk', 'indicators'].includes(state.tab)) state.tab = 'stats'; renderSearchResults(); }
   if (combo) {
     if (['walk', 'indicators'].includes(state.tab)) state.tab = 'stats';
     const profitable = report.assets.filter(a => a.totalReturn > 0 && a.trades > 0).length;
@@ -440,6 +496,7 @@ function renderResults() {
   $('#plain-summary').innerHTML = `<div class="plain-strategy"><span class="plain-kicker">這次系統選到的交易方法</span><h3>${esc(plain.name)}</h3><small>原技術名稱：${esc(plain.technical)} · ${esc(plain.indicators)}</small><p><b>怎麼買、怎麼賣：</b>${esc(plain.rule)}</p></div><div class="plain-result"><strong class="${s.trades === 0 ? 'amber' : color(s.totalReturn)}">${resultText}</strong><span>假設 ${num(result.options.capital)} ${result.metadata.quote} → ${num(s.endValue)} ${result.metadata.quote}</span><span>過程中從高點最多曾回落 ${num(s.maxDrawdown)}%</span><em>${s.trades === 0 && combo ? '請展開上方「訊號診斷」，查看是哪個 AND 條件沒有同時成立。' : '這只是歷史資料模擬，不代表之後一定會有相同結果。'}</em></div>`;
   $('#chart-caption').textContent = `${plain.name} · ${source === 'synthetic' ? '練習用示範資料' : 'Binance 歷史資料'} · ${state.range === 'test' ? '最後 30% 資料另外測試' : '整段歷史資料'}`;
   if (combo) $('#plain-summary .plain-kicker').textContent = '你勾選的 AND 進場條件';
+  if (search) $('#plain-summary .plain-kicker').textContent = '目前顯示：自動搜尋的「最穩定」候選';
   $('#chart-unit').textContent = result.metadata.quote;
   $('#period-label').textContent = `${date(report.equity[0].time)} — ${date(report.equity.at(-1).time)} UTC`;
   $('#drawdown-max').textContent = `${num(s.maxDrawdown)}%`;
@@ -447,9 +504,11 @@ function renderResults() {
   $$('[data-range]').forEach(b => b.classList.toggle('active', b.dataset.range === state.range));
   equityChart($('#equity-chart'), report); drawdownChart($('#drawdown-chart'), report.equity); renderCandlestick();
   $('#candidate-count').textContent = result.ranking.length;
-  $('#ranking-body').innerHTML = result.ranking.map((r, i) => { const p = beginnerStrategy(r.strategy); return `<tr><td><span class="rank-number ${i === 0 ? 'winner' : ''}">${String(i + 1).padStart(2, '0')}</span><span class="strategy-name">${esc(p.name)}</span>${i === 0 ? '<span class="best-pill">前段表現最好</span>' : ''}<span class="strategy-sub">${esc(p.rule)}</span></td><td class="mono ${color(r.train.totalReturn)}">${pct(r.train.totalReturn)}</td><td class="mono ${color(r.test.totalReturn)}">${pct(r.test.totalReturn)}</td><td class="mono negative">${num(r.test.maxDrawdown)}%</td><td class="mono">${r.test.trades}</td></tr>`; }).join('');
-  const top = result.ranking[0], topPlain = beginnerStrategy(top.strategy);
-  $('#ranking-insight').innerHTML = `✧ 前 70% 資料裡，<strong>${esc(topPlain.name)}</strong> 表現最好；拿最後 30% 沒參與挑選的資料再測，結果是 <strong>${pct(top.test.totalReturn)}</strong>。${top.train.trades < 3 || top.train.sharpe === null ? ' 但交易次數太少，先不要把這個結果看得太重。' : ''}${top.test.totalReturn > 0 ? ' 後段仍為正報酬，但還要一起看最慘跌幅與交易次數。' : ' 後段變成虧損，表示前段好成績沒有穩定延續。'}${source === 'synthetic' ? ' 目前是練習資料，不能拿來判斷真實市場。' : ''}`;
+  if (!search) {
+    $('#ranking-body').innerHTML = result.ranking.map((r, i) => { const p = beginnerStrategy(r.strategy); return `<tr><td><span class="rank-number ${i === 0 ? 'winner' : ''}">${String(i + 1).padStart(2, '0')}</span><span class="strategy-name">${esc(p.name)}</span>${i === 0 ? '<span class="best-pill">前段表現最好</span>' : ''}<span class="strategy-sub">${esc(p.rule)}</span></td><td class="mono ${color(r.train.totalReturn)}">${pct(r.train.totalReturn)}</td><td class="mono ${color(r.test.totalReturn)}">${pct(r.test.totalReturn)}</td><td class="mono negative">${num(r.test.maxDrawdown)}%</td><td class="mono">${r.test.trades}</td></tr>`; }).join('');
+    const top = result.ranking[0], topPlain = beginnerStrategy(top.strategy);
+    $('#ranking-insight').innerHTML = `✧ 前 70% 資料裡，<strong>${esc(topPlain.name)}</strong> 表現最好；拿最後 30% 沒參與挑選的資料再測，結果是 <strong>${pct(top.test.totalReturn)}</strong>。${top.train.trades < 3 || top.train.sharpe === null ? ' 但交易次數太少，先不要把這個結果看得太重。' : ''}${top.test.totalReturn > 0 ? ' 後段仍為正報酬，但還要一起看最慘跌幅與交易次數。' : ' 後段變成虧損，表示前段好成績沒有穩定延續。'}${source === 'synthetic' ? ' 目前是練習資料，不能拿來判斷真實市場。' : ''}`;
+  }
   renderDetail();
 }
 const reasons = { signal: '策略出場', stop: '停損 / 移動停損', target: '停利', end: '期末平倉', liquidation: '估計清算' };
@@ -501,9 +560,9 @@ async function loadConfig() {
 }
 function initContent() {
   $('#help-button').title = '新手回測教學'; $('#help-button').setAttribute('aria-label', '新手回測教學');
-  $('#strategy').insertAdjacentHTML('beforeend', '<option value="combination">✓ 條件組合回測（勾選條件，全部符合）</option>');
+  $('#strategy').insertAdjacentHTML('beforeend', '<option value="combination-search">🧠 條件組合自動搜尋（找勝率／穩定／獲利冠軍）</option><option value="combination">✓ 條件組合回測（自己勾選條件）</option>');
   $('#selected-symbols').insertAdjacentHTML('afterend', `<div class="symbol-picker-actions"><button type="button" class="secondary" id="open-symbol-picker">☰ 點選幣種</button><span id="symbol-picker-count">已選 ${state.symbols.length} / ${MAX_SYMBOLS}</span></div><div class="mover-shortcuts"><span>Binance 合約 24h 快速選取</span><button type="button" data-mover-preset="gainers10">漲幅前 10</button><button type="button" data-mover-preset="gainers15">漲幅前 15</button><button type="button" data-mover-preset="losers10">跌幅前 10</button><button type="button" data-mover-preset="losers15">跌幅前 15</button><small>會自動切換到 Binance 真實行情＋USDT 永續合約，並取代目前選取。</small></div><dialog id="symbol-picker-dialog" class="symbol-picker-dialog"><div class="symbol-picker-head"><div><h3>點選回測幣種</h3><p>直接點選，不用輸入代碼。最多 ${MAX_SYMBOLS} 個。</p></div><button type="button" id="close-symbol-picker" aria-label="關閉">×</button></div><input id="symbol-picker-search" type="search" placeholder="搜尋 BTC、ETH、SOL…"><div class="symbol-picker-toolbar"><span id="symbol-picker-count-modal"></span><button type="button" id="clear-symbols">清除全部</button></div><div id="symbol-checkboxes" class="symbol-picker-list"></div><div class="symbol-picker-foot"><button type="button" class="primary" id="done-symbol-picker">完成選擇</button></div></dialog>`);
-  $('#plain-summary').insertAdjacentHTML('beforebegin', '<section id="combination-results" class="panel hidden" aria-label="條件組合逐幣結果"></section>');
+  $('#plain-summary').insertAdjacentHTML('beforebegin', '<section id="search-results" class="panel hidden" aria-label="條件組合自動搜尋結果"></section><section id="combination-results" class="panel hidden" aria-label="條件組合逐幣結果"></section>');
   initCombination();
   $('#strategy').insertAdjacentHTML('beforeend', strategyCatalog.map(s => { const p = beginnerStrategy(s); return `<option value="${s.id}">${p.name}（${s.name}）</option>`; }).join('') + '<option value="custom">＋ 我自己設定買賣條件</option>');
   $('#strategy-cards').innerHTML = strategyCatalog.map((s, i) => { const p = beginnerStrategy(s); return `<article class="strategy-card"><div class="strategy-number">方法 ${String(i + 1).padStart(2, '0')}</div><h3>${esc(p.name)}</h3><div class="indicator-label">技術名稱：${esc(s.name)} · ${esc(s.indicators)}</div><p><b>簡單說：</b>${esc(p.intro)}</p><p><b>實際規則：</b>${esc(p.rule)}</p><button class="secondary" data-use-strategy="${s.id}">用這個方法回測 →</button></article>`; }).join('');
@@ -557,6 +616,7 @@ document.addEventListener('click', event => {
   if (el.id === 'close-symbol-picker' || el.id === 'done-symbol-picker') { const dialog = $('#symbol-picker-dialog'); if (dialog?.close) dialog.close(); else dialog?.removeAttribute('open'); }
   if (el.id === 'clear-symbols') { if (!state.running) { state.symbols = []; renderSymbols(); markDirty(); } }
   if (el.dataset.moverPreset) applyFuturesMoverPreset(el.dataset.moverPreset);
+  if (el.dataset.applySearch) applySearchCandidate(el.dataset.applySearch);
   if (el.id === 'connect-live' || el.id === 'use-demo') { if (state.running) return; $('#source').value = el.id === 'connect-live' ? 'live' : 'demo'; sourceChanged(); }
   if (el.dataset.removeSymbol) { if (state.running) return; state.symbols = state.symbols.filter(s => s !== el.dataset.removeSymbol); renderSymbols(); markDirty(); }
   if (el.dataset.addSymbol) { const before = state.symbols.length; addSymbol(el.dataset.addSymbol); if (state.symbols.length > before) toast('已加入回測交易對'); }
@@ -588,6 +648,7 @@ document.addEventListener('change', event => {
   if (event.target.id === 'symbol-search') { const symbol = event.target.value.trim().toUpperCase(); addSymbol(symbol); event.target.value = ''; }
   if (event.target.id === 'quote-filter') { state.marketPage = 0; renderMarkets(); }
   if (event.target.id === 'trade-side') { state.tradeSide = event.target.value; state.tradePage = 0; renderTrades(); }
+  if (event.target.id === 'search-ranking-sort') { state.searchSort = event.target.value; renderSearchResults(); }
   if (event.target.id === 'candle-symbol') { state.candleSymbol = event.target.value; state.candleOffset = 0; renderCandlestick(); }
   if (event.target.id === 'candle-window-size') { state.candleWindow = Number(event.target.value); state.candleOffset = 0; renderCandlestick(); }
   if (['candle-show-patterns', 'candle-show-signals', 'candle-show-trades'].includes(event.target.id)) renderCandlestick();
