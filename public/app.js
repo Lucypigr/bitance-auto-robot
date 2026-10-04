@@ -17,7 +17,7 @@ const datetime = time => new Date(time).toISOString().slice(0, 16).replace('T', 
 const compact = v => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(v);
 const price = v => num(v, v < 1 ? 6 : v < 100 ? 3 : 2);
 const MAX_SYMBOLS = 15;
-const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT', pickingMovers: false, candleSymbol: null, candleOffset: 0, candleWindow: 120 };
+const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT', pickingMovers: false, candleSymbol: null, candleOffset: 0, candleWindow: 120, searchSort: 'stabilityScore' };
 const beginnerStrategyGuide = {
   trend: { name: '順著強勢趨勢走', intro: '只在方向很明顯時跟著趨勢進場。' },
   rsi: { name: '超跌後等反彈', intro: '價格短線跌太多時買進，恢復正常後離場。' },
@@ -32,7 +32,7 @@ const beginnerStrategyGuide = {
   custom: { name: '我的自訂規則', intro: '使用你自己設定的進場與出場條件。' }
 };
 function beginnerStrategy(strategy) {
-  if (strategy?.id === 'combination') return { name: '條件組合回測', technical: '跨週期 AND', indicators: '只用已收盤 K 線', rule: strategy.combination.conditions.map(c => `${c.interval} ${conditionCatalog[c.type]}${c.type.startsWith('rsi') ? ` ${c.threshold}` : ''}`).join(' ＋ ') + `，全部符合才${strategy.combination.side === 'long' ? '做多' : '做空'}；停損、停利或期末平倉。` };
+  if (strategy?.id === 'combination' || strategy?.id === 'combination-search') return { name: strategy.id === 'combination-search' ? '條件組合自動搜尋' : '條件組合回測', technical: strategy.id === 'combination-search' ? '跨週期 AND 自動搜尋' : '跨週期 AND', indicators: '只用已收盤 K 線', rule: strategy.combination.conditions.map(c => `${c.interval} ${conditionCatalog[c.type]}${c.type.startsWith('rsi') ? ` ${c.threshold}` : ''}`).join(' ＋ ') + `，全部符合才${strategy.combination.side === 'long' ? '做多' : '做空'}；停損、停利或期末平倉。` };
   const key = strategy?.id?.split(':')[0] ?? 'custom';
   const p = strategy?.params ?? {};
   const base = beginnerStrategyGuide[key] ?? beginnerStrategyGuide.custom;
@@ -247,14 +247,16 @@ function updateCombinationDescription() {
   $('#combination-description').textContent = combination.conditions.length ? `已勾選 ${combination.conditions.length} 個 AND 條件。成交檢查週期：${executionInterval(combination, state.market)}。交叉只在發生那根收盤時成立。` : '請至少勾選一個條件。';
 }
 function strategyChanged() {
-  const id = $('#strategy').value;
+  const id = $('#strategy').value, structured = id === 'combination' || id === 'combination-search';
   $('#custom-builder').classList.toggle('hidden', id !== 'custom');
   $('#combination-builder').classList.toggle('hidden', id !== 'combination');
-  $('#interval').disabled = id === 'combination';
-  $('#optimize-row')?.classList.toggle('hidden', id === 'combination');
-  document.querySelectorAll('.standard-risk-only').forEach(el => el.classList.toggle('hidden', id === 'combination'));
-  $('#combo-advanced-note')?.classList.toggle('hidden', id !== 'combination');
+  $('#combination-search-builder')?.classList.toggle('hidden', id !== 'combination-search');
+  $('#interval').disabled = structured;
+  $('#optimize-row')?.classList.toggle('hidden', structured);
+  document.querySelectorAll('.standard-risk-only').forEach(el => el.classList.toggle('hidden', structured));
+  $('#combo-advanced-note')?.classList.toggle('hidden', !structured);
   if (id === 'combination') { $('#strategy-hint').textContent = '依你勾選的條件測整段期間，不自動選策略。每個幣種都會列出淨報酬、勝率、交易次數、最大回撤。'; updateCombinationDescription(); markDirty(); return; }
+  if (id === 'combination-search') { $('#strategy-hint').textContent = '系統會用前 70% 資料搜尋合理的跨週期 AND 組合，再用最後 30% 未見資料驗證，分別找出勝率最高、最穩定與獲利最多。'; markDirty(); return; }
   if (id === 'auto') $('#strategy-hint').textContent = '最適合第一次使用：系統會把所有方法都跑一次，再把結果並排給你看。';
   else if (id === 'custom') $('#strategy-hint').textContent = '你可以自己設定買進與賣出條件；第一次使用可先跳過。';
   else { const s = strategyCatalog.find(s => s.id === id); const plain = beginnerStrategy(s); $('#strategy-hint').textContent = `${plain.intro} 具體規則：${plain.rule}`; }
@@ -271,6 +273,18 @@ function readOptions() {
     o.stopLoss = Number($('#combo-stop').value) / 100; o.takeProfit = Number($('#combo-target').value) / 100; o.trailingStop = 0;
     if (o.market === 'spot' && o.combination.side === 'short') throw new Error('做空請先切換至「永續合約」');
     if (!(o.stopLoss > 0) || !(o.takeProfit > 0)) throw new Error('條件組合回測的停損與停利必須大於 0');
+  } else if (o.strategy === 'combination-search') {
+    o.interval = '15m'; o.optimize = false; o.trailingStop = 0;
+    o.stopLoss = Number($('#search-stop').value) / 100; o.takeProfit = Number($('#search-target').value) / 100;
+    o.search = {
+      side: $('#search-side').value,
+      maxConditions: Number($('#search-max-conditions').value),
+      maxCandidates: Number($('#search-max-candidates').value),
+      minTrades: Number($('#search-min-trades').value),
+      riskSearch: $('#search-risk').checked,
+    };
+    if (o.market === 'spot' && o.search.side === 'short') throw new Error('現貨自動搜尋不能只找做空，請改成「自動」或「只找做多」');
+    if (!(o.stopLoss > 0) || !(o.takeProfit > 0)) throw new Error('自動搜尋的固定停損與停利必須大於 0');
   }
   validateOptions(o);
   if (!state.symbols.length) throw new Error('請至少選擇一個交易對');
@@ -283,7 +297,7 @@ function busy(active) {
   $$('#config-form input, #config-form select, #config-form button').forEach(el => { el.disabled = active; });
   $('#cancel-button').disabled = false; $('#cancel-button').classList.toggle('hidden', !active);
   $('#run-button').innerHTML = active ? '<span>◌</span> 正在用歷史資料模擬買賣… <span>↗</span>' : '<span>▷</span> 開始回測 <span>↗</span>';
-  if (!active) $('#interval').disabled = $('#strategy').value === 'combination';
+  if (!active) $('#interval').disabled = ['combination', 'combination-search'].includes($('#strategy').value);
 }
 function progress(value, message) { $('#progress>span').textContent = message; $('#progress i').style.width = `${value}%`; }
 async function runBacktest() {
@@ -307,9 +321,10 @@ async function runBacktest() {
         data = await res.json(); if (!res.ok) throw new Error(data.error);
       }
       if (controller.signal.aborted) throw new DOMException('已停止', 'AbortError');
-      if (options.strategy === 'combination') {
+      if (options.strategy === 'combination' || options.strategy === 'combination-search') {
         data.timeframes = {};
-        for (const interval of new Set(options.combination.conditions.map(c => c.interval))) {
+        const neededIntervals = options.strategy === 'combination-search' ? combinationIntervals : [...new Set(options.combination.conditions.map(c => c.interval))];
+        for (const interval of neededIntervals) {
           if (interval === options.interval) continue;
           progress(3 + 12 * i / symbols.length, `下載 ${symbol} 的 ${interval} 已收盤條件資料與暖機…`);
           const query = { market: options.market, symbol, interval, startTime: options.startTime, endTime: options.endTime, signalOnly: true };
@@ -340,10 +355,10 @@ async function runBacktest() {
       worker.postMessage({ datasets, options });
     });
     result.metadata.quote = state.quote;
-    state.datasets = datasets; state.result = result; state.range = options.strategy === 'combination' ? 'full' : 'test'; state.tradePage = 0;
+    state.datasets = datasets; state.result = result; state.range = options.strategy === 'combination' ? 'full' : 'test'; state.tradePage = 0; state.candleOffset = 0;
     renderResults(); progress(100, `${result.metadata.bars.toLocaleString()} 根 K 線 · ${result.metadata.candidates} 組候選 · 已完成`);
     if (result.metadata.commonPeriodTrimmed) notice('部分交易對歷史不足，回測已使用各交易對共同可用、完成暖機後的期間。請以圖表日期為準。');
-    toast(options.strategy === 'combination' ? '條件組合回測完成，請查看逐幣結果' : '回測完成，已產生樣本外與滾動驗證報告');
+    toast(options.strategy === 'combination' ? '條件組合回測完成，請查看逐幣結果' : options.strategy === 'combination-search' ? '自動搜尋完成，請查看三種冠軍與樣本外驗證' : '回測完成，已產生樣本外與滾動驗證報告');
   } catch (e) {
     if (e.name === 'AbortError') progress(0, '本次回測已停止');
     else { notice(e.message); progress(0, '回測未完成，請檢查上述訊息'); }
