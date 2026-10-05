@@ -74,8 +74,12 @@
                 <label>冠軍最低交易數<input id="search-min-trades" name="searchMinTrades" type="number" min="1" max="500" step="1" value="20" required></label>
               </div>
               <label class="checkbox-label"><input id="search-risk" name="searchRisk" type="checkbox"><span>連停損／停利一起搜尋<small>開啟後會在 1/2/3/5% 停損與 1/2/3/5/10% 停利的有限組合中搜尋；候選上限仍會限制總工作量。</small></span></label>
+              <div id="search-leverage-controls" class="hidden">
+                <div class="field-grid"><label>固定槓桿<select id="search-leverage" name="searchLeverage"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option><option value="5">5×</option><option value="10">10×</option></select></label></div>
+                <label class="checkbox-label"><input id="search-leverage-search" name="searchLeverageSearch" type="checkbox"><span>連槓桿一起搜尋<small>合約模式會比較 1× / 2× / 3× / 5× / 10×。每個候選都重新計算槓桿損益、手續費、滑價、資金費率與估計清算；現貨固定 1×。</small></span></label>
+              </div>
               <div class="field-grid"><label>固定停損 %<input id="search-stop" name="searchStop" type="number" min="0.1" max="50" step="0.1" value="2" required></label><label>固定停利 %<input id="search-target" name="searchTarget" type="number" min="0.1" max="200" step="0.1" value="4" required></label></div>
-              <p class="form-hint amber">不是無限制暴力枚舉。系統會先產生所有合理排列組合，再以固定規則均勻取樣到你設定的候選上限；結果會顯示理論空間與實際測試數。RSI 搜尋門檻固定為超買 70/75/80、超賣 30/25/20。</p>
+              <p class="form-hint amber">不是無限制暴力枚舉。系統會先產生所有合理排列組合，再以固定規則取樣到你設定的候選上限；勾選槓桿搜尋後，槓桿也會成為候選維度，但實際測試數仍受上限控制。RSI 搜尋門檻固定為超買 70/75/80、超賣 30/25/20。</p>
             </div>
             <p id="strategy-hint" class="form-hint">最適合第一次使用：系統會把所有方法都跑一次，再把結果並排給你看。</p>
             <div id="custom-builder" class="hidden"><p class="form-hint">同組規則採 AND；留空表示不啟用。比較值可填數字或指標名稱。</p><div id="rule-groups"></div></div>
@@ -84,7 +88,7 @@
               <div class="advanced-content">
                 <label class="checkbox-label" id="optimize-row"><input id="optimize" name="optimize" type="checkbox" checked><span>自動比較不同參數<small>系統會多試幾種門檻，不需要你自己調。</small></span></label>
                 <div class="config-divider"></div><div class="field-label">交易成本與風險控制</div>
-                <p id="combo-advanced-note" class="form-hint amber hidden">條件組合／自動搜尋模式：停損與停利使用上方該模式的數值；這裡只保留手續費、滑價、投入比例、槓桿與維持保證金。移動停損不使用。</p>
+                <p id="combo-advanced-note" class="form-hint amber hidden">條件組合／自動搜尋模式：停損與停利使用上方該模式的數值。手動條件組合的槓桿仍使用這裡；自動搜尋改用上方「固定槓桿／連槓桿一起搜尋」。手續費、滑價、投入比例與維持保證金仍使用這裡。移動停損不使用。</p>
                 <div class="field-grid"><label>手續費 %<input name="fee" id="fee" type="number" min="0" max="2" step="0.01" value="0.10" required></label><label>模擬成交落差 %<input name="slippage" id="slippage" type="number" min="0" max="2" step="0.01" value="0.05" required></label><label>每次用多少資金 %<input name="allocation" id="allocation" type="number" min="1" max="100" step="1" value="95" required></label><label class="standard-risk-only">跌多少停損 % <span class="field-hint">0 = 關閉</span><input name="stopLoss" id="stopLoss" type="number" min="0" max="50" step="0.1" value="4" required></label><label class="standard-risk-only">漲多少停利 % <span class="field-hint">0 = 關閉</span><input name="takeProfit" id="takeProfit" type="number" min="0" max="200" step="0.1" value="10" required></label><label class="standard-risk-only">移動停損 %<input name="trailingStop" id="trailingStop" type="number" min="0" max="50" step="0.1" value="3" required></label></div>
                 <div id="futures-fields" class="hidden"><div class="field-grid"><label>槓桿倍數<input name="leverage" id="leverage" type="number" min="1" max="10" step="1" value="2" required></label><label>維持保證金率 %<input name="maintenance" id="maintenance" type="number" min="0.1" max="10" step="0.1" value="0.5" required></label></div><p class="form-hint amber">這裡只是模擬合約風險，不等於 Binance 真實強平引擎。</p></div>
               </div>
