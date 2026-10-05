@@ -1,5 +1,5 @@
 import { computeIndicators } from './indicators.js';
-import { intervals, validateOptions, validateCandles, simulate, metrics } from './backtest.js';
+import { intervals, validateOptions, validateCandles, simulate, simulateCompact, metrics, metricsValues } from './backtest.js';
 import { detectPattern, patternCatalog } from './patterns.js';
 
 export const combinationIntervals = ['15m', '1h', '4h', '1d'];
@@ -307,6 +307,37 @@ function buildMask(base, baseInterval, frame, condition) {
   }
   return mask;
 }
+function buildCandidateSignals(d, candidate, masks, start, end) {
+  const signals = new Uint8Array(d.candles.length);
+  const conditionMasks = candidate.combination.conditions.map(condition => masks.get(atomKey(condition)));
+  if (conditionMasks.some(mask => !mask)) throw new Error('自動搜尋條件快取遺失');
+  const value = candidate.combination.side === 'long' ? 1 : 2;
+  for (let i = start; i < end; i++) {
+    let match = true;
+    for (const mask of conditionMasks) if (!mask[i]) { match = false; break; }
+    if (match) signals[i] = value;
+  }
+  return signals;
+}
+function searchPortfolioCompact(data, candidate, options, ranges, fromKey, toKey, signalsByAsset) {
+  const parts = data.map((d, assetIndex) => {
+    const range = ranges[assetIndex], start = range[fromKey], end = range[toKey];
+    if (start < 0 || end <= start) throw new Error('自動搜尋跨幣種 K 線無法按時間對齊');
+    return simulateCompact(d, { id: candidate.id }, {
+      ...options, capital: options.capital / data.length, stopLoss: candidate.stopLoss, takeProfit: candidate.takeProfit, trailingStop: 0,
+    }, { start, end }, signalsByAsset[assetIndex]);
+  });
+  const equityValues = new Float64Array(parts[0].equityValues.length);
+  for (let i = 0; i < equityValues.length; i++) {
+    let total = 0;
+    for (const part of parts) total += part.equityValues[i];
+    equityValues[i] = total;
+  }
+  const trades = parts.flatMap(p => p.trades).sort((a, b) => a.exitTime - b.exitTime);
+  const stats = metricsValues(data[0].candles, ranges[0][fromKey], equityValues, trades, options.capital, intervals[options.interval]);
+  stats.exposure = parts.reduce((s, p) => s + p.stats.exposure, 0) / parts.length;
+  return { stats, assets: parts.map((p, i) => ({ symbol: data[i].symbol, ...p.stats })) };
+}
 function searchPortfolio(data, candidate, options, range, masksByAsset) {
   const parts = data.map((d, assetIndex) => {
     const start = d.candles.findIndex(c => c.time === range.startTime);
@@ -385,9 +416,18 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
     for (const [key, condition] of usedAtoms) masks.set(key, buildMask(d.candles, '15m', d.searchFrames[condition.interval], condition));
     return masks;
   });
+  const ranges = data.map(d => {
+    const start = d.candles.findIndex(c => c.time === commonStart);
+    const split = d.candles.findIndex(c => c.time === splitTime);
+    const endIndex = d.candles.findIndex(c => c.time === endExclusive);
+    const end = endIndex < 0 ? d.candles.length : endIndex;
+    if (start < 0 || split <= start || end <= split || end - start !== bars) throw new Error('自動搜尋共同期間切分無法按時間對齊');
+    return { start, split, end };
+  });
   const ranking = generated.candidates.map((candidate, index) => {
-    const trainReport = searchPortfolio(data, candidate, options, { startTime: commonStart, endTime: splitTime }, masksByAsset);
-    const testReport = searchPortfolio(data, candidate, options, { startTime: splitTime, endTime: endExclusive }, masksByAsset);
+    const signalsByAsset = data.map((d, assetIndex) => buildCandidateSignals(d, candidate, masksByAsset[assetIndex], ranges[assetIndex].start, ranges[assetIndex].end));
+    const trainReport = searchPortfolioCompact(data, candidate, options, ranges, 'start', 'split', signalsByAsset);
+    const testReport = searchPortfolioCompact(data, candidate, options, ranges, 'split', 'end', signalsByAsset);
     const trainScore = scoreSearchResult(trainReport, config.minTrades), testScore = scoreSearchResult(testReport, config.minTrades);
     onProgress(8 + Math.round((index + 1) / generated.candidates.length * 82), `自動搜尋 ${index + 1} / ${generated.candidates.length}`);
     return {
@@ -430,7 +470,7 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
       mode: 'combination-search', generatedAt: new Date().toISOString(), sources: raw.map(d => ({ symbol: d.symbol, source: d.source, fetchedAt: d.fetchedAt })),
       symbols: raw.map(d => d.symbol), start: commonStart, end: commonEnd, split: splitTime,
       bars, candidates: generated.candidates.length, candidateSpace: generated.totalSpace, riskProfiles: generated.riskProfiles,
-      minTrades: config.minTrades, commonPeriodTrimmed: commonStart > options.startTime + intervals['15m'],
+      minTrades: config.minTrades, rankingEngine: 'compact-typed-array', commonPeriodTrimmed: commonStart > options.startTime + intervals['15m'],
       warnings: [
         `搜尋只用前 70% 資料選候選，最後 30% 僅作未見樣本驗證；共實測 ${generated.candidates.length} 組，理論搜尋空間約 ${generated.totalSpace.toLocaleString()} 組。`,
         `冠軍必須在訓練段至少 ${config.minTrades} 筆且無估計清算；若沒有候選達標，冠軍卡會留空。`,
