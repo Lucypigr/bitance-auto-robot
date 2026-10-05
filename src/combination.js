@@ -255,8 +255,8 @@ export function scoreSearchResult(report, minTrades = 20) {
   const eligible = s.trades >= minTrades && s.liquidations === 0;
   const samplePenalty = s.trades >= minTrades ? 0 : (minTrades - s.trades) * 25;
   const liquidationPenalty = s.liquidations * 250;
-  const winRateScore = (eligible ? 0 : -100000) + s.winRate + Math.min(s.trades, 200) / 1000 - Math.abs(s.maxDrawdown) / 1000;
-  const returnScore = (eligible ? 0 : -100000) + s.totalReturn + consistency * .0001 - Math.abs(s.maxDrawdown) * .000001 - liquidationPenalty;
+  const winRateScore = (eligible ? 0 : -100000) + s.winRate;
+  const returnScore = (eligible ? 0 : -100000) + s.totalReturn;
   const stabilityScore = (eligible ? 0 : -100000)
     + (s.sharpe ?? -3) * 2
     + (s.sortino ?? -3) * .45
@@ -271,8 +271,10 @@ export function scoreSearchResult(report, minTrades = 20) {
 export function pickSearchWinners(ranking, minTrades = 20) {
   const eligible = ranking.filter(r => r.trainScore?.eligible && r.train?.trades >= minTrades);
   const source = eligible.length ? eligible : [];
-  const pick = key => source.length ? [...source].sort((a, b) => b.trainScore[key] - a.trainScore[key])[0] : null;
-  return { winRate: pick('winRateScore'), stability: pick('stabilityScore'), return: pick('returnScore') };
+  const byWinRate = source.length ? [...source].sort((a, b) => b.train.winRate - a.train.winRate || b.train.trades - a.train.trades || b.train.totalReturn - a.train.totalReturn)[0] : null;
+  const byStability = source.length ? [...source].sort((a, b) => b.trainScore.stabilityScore - a.trainScore.stabilityScore)[0] : null;
+  const byReturn = source.length ? [...source].sort((a, b) => b.train.totalReturn - a.train.totalReturn || b.train.trades - a.train.trades)[0] : null;
+  return { winRate: byWinRate, stability: byStability, return: byReturn };
 }
 function candidateDescription(candidate) {
   return candidate.combination.conditions.map(c => `${c.interval} ${conditionCatalog[c.type]}${c.type.startsWith('rsi') ? ` ${c.threshold}` : ''}`).join(' ＋ ');
