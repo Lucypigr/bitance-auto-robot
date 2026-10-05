@@ -32,6 +32,18 @@ test('beginner terminology help explains investment terms without changing contr
   await leverageHelp.click();
   await expect(page.locator('#term-help-title')).toContainText('槓桿');
   await expect(page.locator('#term-help-text')).toContainText('保證金');
+  await page.locator('#close-term-help').click();
+  const candidateHelp = page.locator('label').filter({ hasText: '實際候選上限' }).locator('.term-help').first();
+  await expect(candidateHelp).toBeVisible();
+  await candidateHelp.click();
+  await expect(page.locator('#term-help-title')).toContainText('候選上限');
+  await expect(page.locator('#term-help-text')).toContainText('運算量');
+  await page.locator('#close-term-help').click();
+  const searchHintHelp = page.locator('#combination-search-builder .form-hint').first().locator('.term-help');
+  await expect(searchHintHelp).toBeVisible();
+  await searchHintHelp.click();
+  await expect(page.locator('#term-help-title')).toContainText('AND');
+  await expect(page.locator('#term-help-title')).toContainText('時間週期');
 });
 test('multi-coin AND combination, full-period metrics, save/load and offline report', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
