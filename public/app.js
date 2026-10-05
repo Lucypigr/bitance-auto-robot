@@ -206,6 +206,7 @@ async function switchMarket(market) {
   state.market = market;
   $$('[data-market]').forEach(b => b.classList.toggle('active', b.dataset.market === market));
   $('#futures-fields').classList.toggle('hidden', market !== 'futures');
+  $('#search-leverage-controls')?.classList.toggle('hidden', market !== 'futures');
   [...$('#interval').options].forEach(o => { o.disabled = market === 'futures' && intervals[o.value] > 3600000; });
   if (market === 'futures' && intervals[$('#interval').value] > 3600000) $('#interval').value = '1h';
   $('#fee').value = market === 'futures' ? '.04' : '.10';
@@ -275,6 +276,7 @@ function readOptions() {
     if (!(o.stopLoss > 0) || !(o.takeProfit > 0)) throw new Error('條件組合回測的停損與停利必須大於 0');
   } else if (o.strategy === 'combination-search') {
     o.interval = '15m'; o.optimize = false; o.trailingStop = 0;
+    o.leverage = o.market === 'spot' ? 1 : Number($('#search-leverage').value);
     o.stopLoss = Number($('#search-stop').value) / 100; o.takeProfit = Number($('#search-target').value) / 100;
     o.search = {
       side: $('#search-side').value,
@@ -282,6 +284,8 @@ function readOptions() {
       maxCandidates: Number($('#search-max-candidates').value),
       minTrades: Number($('#search-min-trades').value),
       riskSearch: $('#search-risk').checked,
+      leverageSearch: o.market === 'futures' && $('#search-leverage-search').checked,
+      leverage: o.leverage,
     };
     if (o.market === 'spot' && o.search.side === 'short') throw new Error('現貨自動搜尋不能只找做空，請改成「自動」或「只找做多」');
     if (!(o.stopLoss > 0) || !(o.takeProfit > 0)) throw new Error('自動搜尋的固定停損與停利必須大於 0');
@@ -433,7 +437,7 @@ function renderSearchResults() {
     const row = result.winners?.[key];
     if (!row) return `<article class="search-winner-card unavailable"><span class="search-winner-kicker">${title}</span><h3>沒有候選達到門檻</h3><p>目前沒有策略在訓練段同時達到至少 ${result.metadata.minTrades} 筆交易且沒有估計清算。可增加日期、降低最低交易數或放寬候選條件。</p></article>`;
     const h = row.test, ratio = Math.round((row.testAssetsPositive ?? row.testScore?.consistency ?? 0) * 100);
-    return `<article class="search-winner-card"><span class="search-winner-kicker">${title}</span><h3>${row.combination.side === 'long' ? '做多' : '做空'} · ${row.description}</h3><p class="search-card-sub">${subtitle}</p><div class="search-metrics"><span>樣本外勝率 <b>${num(h.winRate,1)}%</b></span><span>樣本外報酬 <b class="${color(h.totalReturn)}">${pct(h.totalReturn)}</b></span><span>最大回撤 <b class="negative">${num(h.maxDrawdown)}%</b></span><span>交易 <b>${h.trades}</b></span><span>Profit Factor <b>${h.noLosses ? '無虧損' : num(h.profitFactor)}</b></span><span>跨幣正報酬 <b>${ratio}%</b></span><span>正報酬月份 <b>${Math.round((row.testScore?.monthConsistency ?? 0)*100)}%</b></span></div><p><strong>設定：</strong>${result.options.market === 'futures' ? `${result.options.leverage}× 合約 · ` : ''}停損 ${num(row.stopLoss*100,1)}% · 停利 ${num(row.takeProfit*100,1)}%</p><p><strong>為什麼：</strong>${esc(row.explanation.why)}</p><p class="search-risk"><strong>風險：</strong>${esc(row.explanation.risk)}</p><button type="button" class="secondary" data-apply-search="${row.id}">套用到手動條件組合 →</button></article>`;
+    return `<article class="search-winner-card"><span class="search-winner-kicker">${title}</span><h3>${row.combination.side === 'long' ? '做多' : '做空'} · ${row.description}</h3><p class="search-card-sub">${subtitle}</p><div class="search-metrics"><span>樣本外勝率 <b>${num(h.winRate,1)}%</b></span><span>樣本外報酬 <b class="${color(h.totalReturn)}">${pct(h.totalReturn)}</b></span><span>最大回撤 <b class="negative">${num(h.maxDrawdown)}%</b></span><span>交易 <b>${h.trades}</b></span><span>Profit Factor <b>${h.noLosses ? '無虧損' : num(h.profitFactor)}</b></span><span>跨幣正報酬 <b>${ratio}%</b></span><span>正報酬月份 <b>${Math.round((row.testScore?.monthConsistency ?? 0)*100)}%</b></span></div><p><strong>設定：</strong>${result.options.market === 'futures' ? `${row.leverage}× 合約 · ` : ''}停損 ${num(row.stopLoss*100,1)}% · 停利 ${num(row.takeProfit*100,1)}%</p><p><strong>為什麼：</strong>${esc(row.explanation.why)}</p><p class="search-risk"><strong>風險：</strong>${esc(row.explanation.risk)}</p><button type="button" class="secondary" data-apply-search="${row.id}">套用到手動條件組合 →</button></article>`;
   };
   const rows = [...(result.searchRanking ?? [])];
   const sort = state.searchSort;
@@ -445,8 +449,8 @@ function renderSearchResults() {
     if (sort === 'consistency') return b.testScore.consistency - a.testScore.consistency;
     return b.trainScore.stabilityScore - a.trainScore.stabilityScore;
   });
-  const rankingRows = rows.slice(0, 100).map((row, i) => `<tr><td><span class="rank-number">${String(i+1).padStart(2,'0')}</span><strong>${row.combination.side === 'long' ? '多' : '空'}</strong><span class="strategy-sub">${esc(row.description)}</span></td><td class="mono ${color(row.test.totalReturn)}">${pct(row.test.totalReturn)}</td><td class="mono">${num(row.test.winRate,1)}%</td><td class="mono negative">${num(row.test.maxDrawdown)}%</td><td>${row.test.trades}</td><td class="mono">${row.test.noLosses ? '∞' : num(row.test.profitFactor)}</td><td class="mono">${Math.round(row.testScore.consistency*100)}%</td><td><button type="button" class="add-market" data-apply-search="${row.id}">套用</button></td></tr>`).join('');
-  container.innerHTML = `<div class="panel-heading"><div><h3>條件組合自動搜尋</h3><p>理論合理組合空間約 ${result.metadata.candidateSpace.toLocaleString()} 組；實際受候選上限控制，測試 ${result.metadata.candidates} 組。冠軍只用前 70% 選出，下面數字以最後 30% 樣本外為主。</p></div><span class="outline-badge">70% 選候選 / 30% 驗證</span></div><div class="search-winner-grid">${winnerMeta.map(card).join('')}</div><div class="search-ranking-head"><div><h3>全部候選排行</h3><p>排序會改變表格，不會重新挑冠軍或偷看樣本外。</p></div><label>排序<select id="search-ranking-sort"><option value="stabilityScore">穩定度</option><option value="winRateScore">勝率</option><option value="returnScore">報酬</option><option value="drawdown">最大回撤</option><option value="trades">交易次數</option><option value="consistency">跨幣一致性</option></select></label></div><div class="table-scroll"><table><thead><tr><th>候選條件</th><th>樣本外報酬</th><th>勝率</th><th>最大回撤</th><th>交易數</th><th>PF</th><th>跨幣正報酬</th><th></th></tr></thead><tbody id="search-ranking-body">${rankingRows}</tbody></table></div><p class="detail-note">目前 K 線圖顯示「最穩定」冠軍的樣本外交易；若要深入看其他候選，按「套用」會把它完整帶回手動條件組合，再重新回測即可查看所有訊號與交易。</p>`;
+  const rankingRows = rows.slice(0, 100).map((row, i) => `<tr><td><span class="rank-number">${String(i+1).padStart(2,'0')}</span><strong>${row.combination.side === 'long' ? '多' : '空'}</strong><span class="strategy-sub">${esc(row.description)}</span></td><td class="mono">${result.options.market === 'futures' ? row.leverage + '×' : '1×'}</td><td class="mono ${color(row.test.totalReturn)}">${pct(row.test.totalReturn)}</td><td class="mono">${num(row.test.winRate,1)}%</td><td class="mono negative">${num(row.test.maxDrawdown)}%</td><td>${row.test.trades}</td><td class="mono">${row.test.noLosses ? '∞' : num(row.test.profitFactor)}</td><td class="mono">${Math.round(row.testScore.consistency*100)}%</td><td><button type="button" class="add-market" data-apply-search="${row.id}">套用</button></td></tr>`).join('');
+  container.innerHTML = `<div class="panel-heading"><div><h3>條件組合自動搜尋</h3><p>理論合理組合空間約 ${result.metadata.candidateSpace.toLocaleString()} 組；實際受候選上限控制，測試 ${result.metadata.candidates} 組。冠軍只用前 70% 選出，下面數字以最後 30% 樣本外為主。</p></div><span class="outline-badge">70% 選候選 / 30% 驗證</span></div><div class="search-winner-grid">${winnerMeta.map(card).join('')}</div><div class="search-ranking-head"><div><h3>全部候選排行</h3><p>排序會改變表格，不會重新挑冠軍或偷看樣本外。</p></div><label>排序<select id="search-ranking-sort"><option value="stabilityScore">穩定度</option><option value="winRateScore">勝率</option><option value="returnScore">報酬</option><option value="drawdown">最大回撤</option><option value="trades">交易次數</option><option value="consistency">跨幣一致性</option></select></label></div><div class="table-scroll"><table><thead><tr><th>候選條件</th><th>槓桿</th><th>樣本外報酬</th><th>勝率</th><th>最大回撤</th><th>交易數</th><th>PF</th><th>跨幣正報酬</th><th></th></tr></thead><tbody id="search-ranking-body">${rankingRows}</tbody></table></div><p class="detail-note">目前 K 線圖顯示「最穩定」冠軍的樣本外交易；若要深入看其他候選，按「套用」會把它完整帶回手動條件組合，再重新回測即可查看所有訊號與交易。</p>`;
   $('#search-ranking-sort').value = state.searchSort;
 }
 function applySearchCandidate(id) {
@@ -456,6 +460,10 @@ function applySearchCandidate(id) {
   initCombination(row.combination);
   $('#combo-stop').value = String(row.stopLoss * 100);
   $('#combo-target').value = String(row.takeProfit * 100);
+  if (state.market === 'futures' && Number.isFinite(row.leverage)) {
+    $('#leverage').value = String(row.leverage);
+    $('#search-leverage').value = String(row.leverage);
+  }
   strategyChanged();
   notice(`已套用自動搜尋候選：${row.description}。請按「開始回測」查看完整 K 線訊號與逐筆交易。`);
   $('#strategy').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -544,7 +552,7 @@ function exportTrades() {
 }
 function saveConfig() {
   const values = Object.fromEntries(new FormData($('#config-form')));
-  const config = { version: 1, market: state.market, symbols: state.symbols, quote: state.quote, values, optimize: $('#optimize').checked, searchRisk: $('#search-risk')?.checked ?? false, rules: readRules(), combination: readCombination() };
+  const config = { version: 1, market: state.market, symbols: state.symbols, quote: state.quote, values, optimize: $('#optimize').checked, searchRisk: $('#search-risk')?.checked ?? false, searchLeverageSearch: $('#search-leverage-search')?.checked ?? false, rules: readRules(), combination: readCombination() };
   try { localStorage.setItem('quantlab-config-v1', JSON.stringify(config)); toast('設定已儲存在此瀏覽器'); } catch { toast('此瀏覽器不允許本機儲存'); }
 }
 async function loadConfig() {
@@ -554,7 +562,7 @@ async function loadConfig() {
     if (!config || config.version !== 1) return toast('尚無已儲存的設定');
     await switchMarket(config.market);
     for (const [name, value] of Object.entries(config.values)) { const element = $('#config-form').elements.namedItem(name); if (element && element.type !== 'checkbox') element.value = value; }
-    state.symbols = config.symbols.slice(0, MAX_SYMBOLS); state.quote = config.quote; $('#optimize').checked = config.optimize; if ($('#search-risk')) $('#search-risk').checked = !!config.searchRisk;
+    state.symbols = config.symbols.slice(0, MAX_SYMBOLS); state.quote = config.quote; $('#optimize').checked = config.optimize; if ($('#search-risk')) $('#search-risk').checked = !!config.searchRisk; if ($('#search-leverage-search')) $('#search-leverage-search').checked = !!config.searchLeverageSearch;
     initRules(config.rules); initCombination(config.combination); strategyChanged(); renderSymbols(); await sourceChanged(); toast('已載入設定，執行回測即可更新結果');
   } catch { toast('儲存的設定無法讀取'); }
 }
