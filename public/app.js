@@ -322,48 +322,133 @@ const beginnerGlossary = {
     "title": "暮星",
     "text": "三根 K 線組合，常用來描述上漲後可能由多方轉向空方。"
   }
+,
+  "overbought": {
+    "title": "超買",
+    "text": "代表 RSI 等指標處在相對偏高區域，表示近期買盤可能偏熱；不是「一定會跌」或「應該立刻做空」的意思。"
+  },
+  "oversold": {
+    "title": "超賣",
+    "text": "代表 RSI 等指標處在相對偏低區域，表示近期賣壓可能偏重；不是「一定會漲」或「應該立刻買進」的意思。"
+  },
+  "goldenCross": {
+    "title": "黃金交叉",
+    "text": "較短期的線由下往上穿過較長期或訊號線，常被解讀為動能轉強；它是落後型訊號，不能單獨保證上漲。"
+  },
+  "deathCross": {
+    "title": "死亡交叉",
+    "text": "較短期的線由上往下穿過較長期或訊號線，常被解讀為動能轉弱；它是落後型訊號，不能單獨保證下跌。"
+  },
+  "timeframe": {
+    "title": "時間週期",
+    "text": "每一根 K 線代表多長時間。15m=15 分鐘、1h=1 小時、4h=4 小時、1d=1 天；週期越大，訊號通常越慢。"
+  },
+  "executionInterval": {
+    "title": "成交週期",
+    "text": "回測真正用來模擬進場與出場成交的 K 線週期。高週期條件要等收盤確認後，才會在下一個可成交時點使用。"
+  },
+  "stability": {
+    "title": "穩定度",
+    "text": "不是單看勝率，而是綜合報酬、回撤、風險調整後表現、交易數與跨幣一致性等因素。高分也不代表未來沒有風險。"
+  },
+  "tradeCount": {
+    "title": "交易次數",
+    "text": "回測期間完成了幾筆交易。交易太少時，勝率或報酬可能只是偶然；通常樣本越多，統計參考性才比較高。"
+  },
+  "candidateCap": {
+    "title": "候選上限",
+    "text": "自動搜尋最多實際測試幾組設定。這是控制運算量的上限，不代表理論上只有這些組合。"
+  },
+  "positiveReturn": {
+    "title": "正報酬",
+    "text": "回測期末資金高於期初，也就是報酬率大於 0%。仍要一起看回撤、交易數與樣本外結果。"
+  },
+  "tradingCost": {
+    "title": "交易成本",
+    "text": "回測中會侵蝕獲利的成本，主要包含手續費、滑價；永續合約還可能包含資金費率。"
+  },
+  "quoteAsset": {
+    "title": "報價幣",
+    "text": "交易對右邊用來標示價格的資產。例如 BTCUSDT 的 USDT 就是報價幣。"
+  },
+  "usdt": {
+    "title": "USDT",
+    "text": "常用的美元穩定幣，價格通常力求接近 1 美元，但它不是銀行存款，也不等於持有真正的美元。"
+  },
+  "dailyChange": {
+    "title": "24h 漲跌",
+    "text": "目前價格相對約 24 小時前的百分比變化，只代表最近一天的走勢，不等於未來方向。"
+  },
+  "quoteVolume": {
+    "title": "24h 成交額",
+    "text": "最近 24 小時以報價幣計算的總成交金額，可粗略反映市場活躍度與流動性。"
+  },
+  "demoData": {
+    "title": "合成示範資料",
+    "text": "系統人工產生、可重現的練習行情，只用來測介面與模型流程，不能當成真實市場績效。"
+  },
+  "websocket": {
+    "title": "WebSocket 即時報價",
+    "text": "網站與行情來源保持持續連線，價格有更新時可直接推送過來；這是資料傳輸方式，不是交易策略。"
+  },
+  "rest": {
+    "title": "REST 行情",
+    "text": "網站定期向行情來源重新請求最新資料的方式；相較即時推送，更新頻率通常較低。"
+  },
+  "webWorker": {
+    "title": "Web Worker",
+    "text": "瀏覽器把大量回測計算放到背景執行緒，避免整個畫面卡住；它不會改變策略的計算邏輯。"
+  },
+  "utc": {
+    "title": "UTC",
+    "text": "世界協調時間。回測月份與部分時間標記用 UTC 統一計算，台灣時間是 UTC+8。"
+  }
 };
 const beginnerGlossaryRules = [
-  ['profitFactor', /Profit Factor|獲利因子/], ['sortino', /Sortino/], ['calmar', /Calmar/], ['sharpe', /Sharpe/], ['cagr', /CAGR|年化報酬/],
-  ['maxDrawdown', /最大回撤|最慘跌幅|回撤 DRAWDOWN|回撤/], ['winRate', /勝率/], ['netReturn', /淨報酬|測試報酬|前段報酬/], ['netProfit', /淨利/],
+  ['profitFactor', /Profit Factor|獲利因子|\bPF\b/], ['sortino', /Sortino/], ['calmar', /Calmar/], ['sharpe', /Sharpe/], ['cagr', /CAGR|年化報酬/],
+  ['maxDrawdown', /最大回撤|最慘跌幅|回撤 DRAWDOWN|回撤/], ['winRate', /勝率/], ['stability', /穩定度|最穩定/], ['tradeCount', /交易次數|交易數|交易筆數/],
+  ['netReturn', /淨報酬|測試報酬|前段報酬|報酬冠軍/], ['positiveReturn', /正報酬/], ['netProfit', /淨利/],
   ['expectancy', /每筆期望值/], ['avgWin', /平均盈利/], ['avgLoss', /平均虧損/], ['lossStreak', /最長連敗/], ['exposure', /市場曝險/], ['holding', /平均持倉/],
-  ['marginReturn', /保證金報酬/], ['pnl', /淨損益/], ['funding', /資金費率/], ['liquidation', /清算/], ['maintenance', /維持保證金/], ['leverage', /槓桿/],
-  ['slippage', /滑價|成交落差/], ['fee', /手續費/], ['allocation', /每次用多少資金|投入比例/], ['trailingStop', /移動停損/], ['stopLoss', /停損/], ['takeProfit', /停利/],
-  ['holdout', /樣本外|最後 30%|後段測試/], ['training', /訓練段|前 70%|前段/], ['walkForward', /滾動驗證|FOLD/], ['candidate', /候選/], ['overfit', /過度擬合/],
+  ['marginReturn', /保證金報酬/], ['pnl', /淨損益/], ['funding', /資金費率/], ['liquidation', /清算|強平/], ['maintenance', /維持保證金/], ['leverage', /槓桿/],
+  ['slippage', /滑價|成交落差/], ['fee', /手續費/], ['tradingCost', /交易成本|已扣除手續費與滑價/], ['allocation', /每次用多少資金|投入比例/], ['trailingStop', /移動停損/], ['stopLoss', /停損/], ['takeProfit', /停利/],
+  ['holdout', /樣本外|最後 30%|後段測試/], ['training', /訓練段|前 70%|前段/], ['walkForward', /滾動驗證|FOLD/], ['candidateCap', /候選上限/], ['candidate', /候選/], ['overfit', /過度擬合/],
   ['crossAsset', /跨幣正報酬|跨幣一致性/], ['positiveMonths', /正報酬月份/], ['monthlyReturn', /月度報酬/], ['benchmark', /買入持有|基準/], ['equity', /淨值|資金變化圖/],
-  ['long', /做多/], ['short', /做空/], ['futures', /永續合約/], ['spot', /現貨|SPOT/], ['pair', /交易對/], ['capital', /假設投入|投入資金/], ['and', /AND/], ['signal', /訊號/],
+  ['long', /做多/], ['short', /做空/], ['futures', /永續合約/], ['spot', /現貨|SPOT/], ['pair', /交易對/], ['quoteAsset', /報價幣/], ['usdt', /USDT/], ['capital', /假設投入|投入資金/], ['and', /AND/], ['signal', /訊號/],
+  ['overbought', /超買/], ['oversold', /超賣/], ['goldenCross', /黃金交叉|上穿/], ['deathCross', /死亡交叉|下穿/],
   ['rsi', /RSI/], ['ema', /EMA/], ['macd', /MACD/], ['bollinger', /布林/], ['adx', /ADX/], ['stochastic', /Stochastic|KD/], ['supertrend', /Supertrend/],
   ['keltner', /Keltner/], ['vwap', /VWAP/], ['obv', /OBV/], ['cci', /CCI/], ['mfi', /MFI/], ['donchian', /Donchian/], ['atr', /ATR/], ['volume', /成交量/],
   ['hammer', /槌頭線/], ['invertedHammer', /倒槌頭/], ['hangingMan', /上吊線/], ['shootingStar', /流星線/], ['bullishEngulfing', /看漲吞噬/], ['bearishEngulfing', /看跌吞噬/],
-  ['doji', /十字星/], ['morningStar', /晨星/], ['eveningStar', /暮星/], ['candlestickPattern', /K 線反轉型態|K 線型態/], ['kline', /K 線/], ['backtest', /回測/]
+  ['doji', /十字星/], ['morningStar', /晨星/], ['eveningStar', /暮星/], ['candlestickPattern', /K 線反轉型態|K 線型態/], ['executionInterval', /成交週期/], ['timeframe', /K 線時間|15m|1h|4h|1d/], ['kline', /K 線/], ['backtest', /回測/],
+  ['dailyChange', /24h 漲跌/], ['quoteVolume', /24h 成交額/], ['demoData', /合成示範資料|示範資料/], ['websocket', /WebSocket/], ['rest', /REST 行情/], ['webWorker', /Web Worker/], ['utc', /UTC/]
 ];
-function termHelpButton(key) {
-  const item = beginnerGlossary[key];
-  return item ? '<button type="button" class="term-help" data-term-help="' + key + '" title="' + esc(item.text) + '" aria-label="解釋：' + esc(item.title) + '">ⓘ</button>' : '';
+function termHelpButton(keys) {
+  const list = [...new Set((Array.isArray(keys) ? keys : [keys]).filter(key => beginnerGlossary[key]))];
+  if (!list.length) return '';
+  const items = list.map(key => beginnerGlossary[key]);
+  const title = items.map(item => item.title).join('、');
+  const hint = items.map(item => item.title + '：' + item.text).join(' ｜ ');
+  return '<button type="button" class="term-help" data-term-help="' + list.join(',') + '" title="' + esc(hint) + '" aria-label="解釋：' + esc(title) + '">ⓘ</button>';
 }
 function decorateBeginnerTerms(root = document) {
-  const selector = 'label, th, h3, h4, .field-label, .stat-label, .search-metrics>span, .chart-legend>span, .detail-tabs button, .indicator-tag, .strategy-card .indicator-label, .fold-stats span, .candle-toggle-row label';
+  const selector = 'label, th, h2, h3, h4, summary, .field-label, .stat-label, .search-metrics>span, .chart-legend>span, .detail-tabs button, .indicator-tag, .strategy-card .indicator-label, .fold-stats span, .candle-toggle-row label, .form-hint, .panel-heading p, .detail-note, .outline-badge, .small-label, .search-card-sub, .drawdown-heading>span, .chart-foot>span, #progress span, .utc-label, .status-badge';
   const nodes = [];
   if (root instanceof Element && root.matches(selector)) nodes.push(root);
   if (root.querySelectorAll) nodes.push(...root.querySelectorAll(selector));
-  for (const summary of root.querySelectorAll ? root.querySelectorAll('summary') : []) {
-    const text = summary.textContent.replace(/\s+/g, ' ').trim();
-    const match = beginnerGlossaryRules.find(([, re]) => re.test(text));
-    if (match && !summary.title) summary.title = beginnerGlossary[match[0]].text;
-  }
   for (const el of nodes) {
     if (el.closest('#term-help-dialog') || el.querySelector(':scope > .term-help')) continue;
     const text = el.textContent.replace(/\s+/g, ' ').trim();
-    const match = beginnerGlossaryRules.find(([, re]) => re.test(text));
-    if (!match) continue;
-    el.insertAdjacentHTML('beforeend', termHelpButton(match[0]));
+    const matches = [...new Set(beginnerGlossaryRules.filter(([, re]) => re.test(text)).map(([key]) => key))];
+    if (!matches.length) continue;
+    el.insertAdjacentHTML('beforeend', termHelpButton(matches));
   }
 }
-function showTermHelp(key) {
-  const item = beginnerGlossary[key], dialog = $('#term-help-dialog');
-  if (!item || !dialog) return;
-  $('#term-help-title').textContent = item.title;
-  $('#term-help-text').textContent = item.text;
+function showTermHelp(keys) {
+  const list = String(keys || '').split(',').filter(key => beginnerGlossary[key]);
+  const dialog = $('#term-help-dialog');
+  if (!list.length || !dialog) return;
+  const items = list.map(key => beginnerGlossary[key]);
+  $('#term-help-title').textContent = items.map(item => item.title).join('、');
+  $('#term-help-text').textContent = items.map(item => item.title + '：' + item.text).join('\n\n');
   if (dialog.showModal) dialog.showModal(); else dialog.setAttribute('open', '');
 }
 function installBeginnerHelp() {
