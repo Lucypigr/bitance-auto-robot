@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { simulate, analyze, validateOptions, validateCandles, metrics } from '../src/backtest.js';
+import { simulate, simulateCompact, analyze, validateOptions, validateCandles, metrics } from '../src/backtest.js';
 import { validateRules, candidates } from '../src/strategies.js';
 import { demoHistory } from '../src/demo.js';
 const hour = 3600000;
@@ -86,4 +86,18 @@ test('short samples do not claim reliable annualization or undefined ratios', ()
   const e=Array.from({length:3},(_,i)=>({time:i*hour,value:10000}));
   const m=metrics(e,[],10000,hour);
   assert.equal(m.sharpe,null); assert.equal(m.cagr,null); assert.equal(m.profitFactor,null); assert.equal(m.trades,0);
+});
+
+test('compact simulation used by auto-search matches full execution statistics', () => {
+  const c = bars([100,100,110,105,95,108,112,104]);
+  c[3].low = 90; c[4].high = 115;
+  const signals = new Uint8Array(c.length); signals[0] = 1; signals[4] = 1;
+  const opts = { ...options, fee: .001, slippage: .0005, stopLoss: .08, takeProfit: .1 };
+  const range = { start: 1, end: c.length };
+  const full = simulate({ symbol:'BTCUSDT', candles:c, funding:[] }, { id:'compact-check' }, opts, range, signals);
+  const compact = simulateCompact({ symbol:'BTCUSDT', candles:c, funding:[] }, { id:'compact-check' }, opts, range, signals);
+  assert.deepEqual(compact.stats, full.stats);
+  assert.equal(compact.equityValues.length, full.equity.length);
+  assert.equal(compact.trades.length, full.trades.length);
+  if (compact.trades.length) assert.equal(Object.hasOwn(compact.trades[0], 'entry'), false);
 });
