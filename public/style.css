@@ -89,6 +89,6 @@ label>.term-help,th>.term-help,h3>.term-help,h4>.term-help,summary>.term-help,.s
 .term-help-head span{display:block;color:#94ad6d;font-size:9px;letter-spacing:1.2px;margin-bottom:5px}
 .term-help-head h3{font-size:18px;margin:0;color:#edf5e4}
 .term-help-head button{border:0;background:transparent;color:#8d9aa9;font-size:26px;line-height:1;padding:0 3px}
-.term-help-dialog>p{font-size:12px;line-height:1.9;color:#b8c4d1;padding:15px 20px 8px;margin:0}
+.term-help-dialog>p{font-size:12px;line-height:1.9;color:#b8c4d1;padding:15px 20px 8px;margin:0;white-space:pre-line}
 .term-help-dialog>small{display:block;padding:0 20px 18px;color:#768397;font-size:9px;line-height:1.6}
 @media(max-width:760px){.term-help{width:18px;height:18px;font-size:11px;cursor:pointer}.term-help-dialog{width:calc(100% - 24px)}.term-help-dialog>p{font-size:13px}.term-help-head{padding:16px 17px 10px}.term-help-dialog>p,.term-help-dialog>small{padding-left:17px;padding-right:17px}}
