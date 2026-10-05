@@ -17,6 +17,358 @@ const datetime = time => new Date(time).toISOString().slice(0, 16).replace('T', 
 const compact = v => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(v);
 const price = v => num(v, v < 1 ? 6 : v < 100 ? 3 : 2);
 const MAX_SYMBOLS = 15;
+const beginnerGlossary = {
+  "backtest": {
+    "title": "回測",
+    "text": "把一套固定買賣規則放回過去的歷史行情重跑，看看當時可能得到什麼結果；它不是未來保證。"
+  },
+  "kline": {
+    "title": "K 線",
+    "text": "把一段時間內的開盤、最高、最低、收盤價格畫成一根圖形。15m 是每 15 分鐘一根。"
+  },
+  "spot": {
+    "title": "現貨",
+    "text": "直接買進資產本身，通常只能靠價格上漲獲利；本平台現貨固定 1×、只做多。"
+  },
+  "futures": {
+    "title": "永續合約",
+    "text": "不是直接持有幣，而是用合約押注價格方向；可做多、做空，也會有槓桿、資金費率與清算風險。"
+  },
+  "pair": {
+    "title": "交易對",
+    "text": "例如 BTCUSDT 表示用 USDT 來計價 BTC。左邊是資產，右邊是報價幣。"
+  },
+  "capital": {
+    "title": "投入資金",
+    "text": "這次回測假設一開始有多少資金。多幣種回測會把總資金等額分配到各幣的獨立帳戶。"
+  },
+  "long": {
+    "title": "做多",
+    "text": "先買進或建立多單，期待價格上漲後獲利。價格下跌時通常會虧損。"
+  },
+  "short": {
+    "title": "做空",
+    "text": "建立空單，期待價格下跌後獲利。價格上漲時通常會虧損；本平台只在永續合約使用。"
+  },
+  "and": {
+    "title": "AND 條件",
+    "text": "代表「全部都要成立」。例如 RSI 超買 AND MACD 死亡交叉，兩個都符合才產生訊號。"
+  },
+  "signal": {
+    "title": "交易訊號",
+    "text": "策略條件成立的提示。這不等於立刻成交；本平台通常在訊號收盤確認後，下一根 K 線開盤成交。"
+  },
+  "entry": {
+    "title": "進場",
+    "text": "真正建立一筆部位的時點與價格。回測會計入手續費與滑價。"
+  },
+  "exit": {
+    "title": "出場",
+    "text": "把持有的部位關掉，實現這筆交易的盈虧。可能因停損、停利、訊號、期末或清算離場。"
+  },
+  "candidate": {
+    "title": "候選策略",
+    "text": "自動搜尋時被拿來比較的一組完整設定，例如條件、停損停利與槓桿。"
+  },
+  "training": {
+    "title": "訓練段 / 前 70%",
+    "text": "只用來挑選策略與參數的前段歷史資料。冠軍只能根據這一段決定。"
+  },
+  "holdout": {
+    "title": "樣本外 / 最後 30%",
+    "text": "完全不參與挑選策略的保留資料，只在選完冠軍後拿來驗證，較能看出是否過度擬合。"
+  },
+  "walkForward": {
+    "title": "滾動驗證",
+    "text": "把時間往前切成多段，每一段先用前面的資料選策略，再用後面的未見資料測試。"
+  },
+  "overfit": {
+    "title": "過度擬合",
+    "text": "策略太貼合某段歷史資料，當時看起來很好，但換一段時間或市場就失效。"
+  },
+  "stopLoss": {
+    "title": "停損",
+    "text": "虧損達到設定幅度時自動離場，用來限制單筆損失；跳空時成交可能比設定價更差。"
+  },
+  "takeProfit": {
+    "title": "停利",
+    "text": "獲利達到設定幅度時自動離場，把浮動獲利轉成已實現獲利。"
+  },
+  "trailingStop": {
+    "title": "移動停損",
+    "text": "價格往有利方向走時，停損線跟著移動，用來保護已累積的獲利。"
+  },
+  "leverage": {
+    "title": "槓桿",
+    "text": "用較少保證金控制較大的名目部位。5× 代表約 1 元保證金控制 5 元部位；盈虧、成本與清算風險都會放大。"
+  },
+  "margin": {
+    "title": "保證金",
+    "text": "合約交易中拿來承擔部位風險的資金。若剩餘保證金不足，可能觸發清算。"
+  },
+  "maintenance": {
+    "title": "維持保證金率",
+    "text": "合約部位至少要保留的安全資金比例。越接近門檻，越接近被強制清算。"
+  },
+  "liquidation": {
+    "title": "估計清算",
+    "text": "當虧損使保證金不足時，模型視為部位被強制關閉。本平台是研究估算，不是 Binance 強平引擎 1:1 複製。"
+  },
+  "fee": {
+    "title": "手續費",
+    "text": "每次成交收取的費用。進場與出場都可能收費，槓桿越高、名目部位越大，費用也可能更高。"
+  },
+  "slippage": {
+    "title": "滑價 / 模擬成交落差",
+    "text": "理想價格與實際成交價格的差距。回測用固定不利方向模擬，真實市場會隨流動性改變。"
+  },
+  "allocation": {
+    "title": "每次用多少資金",
+    "text": "每次開倉拿帳戶中多少比例的資金去建立部位。比例越高，單筆交易對總資金影響越大。"
+  },
+  "funding": {
+    "title": "資金費率",
+    "text": "永續合約多空雙方定期互相支付的費用。正費率通常由多方支付給空方，方向與金額會影響淨報酬。"
+  },
+  "markPrice": {
+    "title": "標記價格",
+    "text": "交易所用來計算未實現盈虧與強平風險的參考價格，目的是降低單一成交價異常造成的影響。"
+  },
+  "equity": {
+    "title": "淨值",
+    "text": "帳戶目前總價值，包含現金與尚未平倉部位的浮動盈虧。"
+  },
+  "benchmark": {
+    "title": "買入持有基準",
+    "text": "單純一開始買進並持有到結束的比較基準，用來判斷策略是否真的比不操作更好。"
+  },
+  "netReturn": {
+    "title": "淨報酬",
+    "text": "把交易損益扣除模型中的成本後，相對起始資金的總報酬百分比。"
+  },
+  "netProfit": {
+    "title": "淨利",
+    "text": "期末淨值減掉起始資金後的金額，已反映模型計入的交易成本。"
+  },
+  "winRate": {
+    "title": "勝率",
+    "text": "獲利交易筆數 ÷ 全部已完成交易筆數。高勝率不代表一定賺錢，還要看平均賺多少、平均賠多少。"
+  },
+  "maxDrawdown": {
+    "title": "最大回撤",
+    "text": "資金從某個高點跌到之後最低點的最大跌幅。越接近 0 通常越穩，數字越負代表曾經跌得越深。"
+  },
+  "cagr": {
+    "title": "CAGR 年化報酬",
+    "text": "把整段報酬換算成平均每年複利成長率。期間太短時參考價值很低，所以本平台不足 30 天不計。"
+  },
+  "sharpe": {
+    "title": "Sharpe 比率",
+    "text": "用報酬相對整體波動來衡量風險調整後表現。通常越高越好，但樣本少時不可靠。"
+  },
+  "sortino": {
+    "title": "Sortino 比率",
+    "text": "類似 Sharpe，但只把向下虧損波動當成主要風險，因此更聚焦在壞波動。"
+  },
+  "calmar": {
+    "title": "Calmar 比率",
+    "text": "年化報酬 ÷ 最大回撤，用來衡量「承受多深跌幅換到多少年化報酬」。"
+  },
+  "profitFactor": {
+    "title": "Profit Factor / 獲利因子",
+    "text": "所有獲利交易總額 ÷ 所有虧損交易總額。大於 1 代表總賺的金額大於總賠的金額。"
+  },
+  "expectancy": {
+    "title": "每筆期望值",
+    "text": "平均每做一筆交易，長期統計上可能賺或賠多少金額。正值較好，但需要足夠交易筆數。"
+  },
+  "avgWin": {
+    "title": "平均盈利",
+    "text": "所有獲利交易的平均獲利金額。"
+  },
+  "avgLoss": {
+    "title": "平均虧損",
+    "text": "所有虧損交易的平均虧損金額。"
+  },
+  "lossStreak": {
+    "title": "最長連敗",
+    "text": "歷史上最多連續幾筆交易都是虧損，用來估計心理與資金壓力。"
+  },
+  "exposure": {
+    "title": "市場曝險時間",
+    "text": "回測期間有持倉的時間比例。越高代表資金越常暴露在市場波動中。"
+  },
+  "holding": {
+    "title": "平均持倉時間",
+    "text": "每筆交易從進場到出場平均持續多久。"
+  },
+  "marginReturn": {
+    "title": "保證金報酬",
+    "text": "這筆合約交易的淨損益相對於投入保證金的百分比；槓桿會讓它比標的價格變動更大。"
+  },
+  "pnl": {
+    "title": "淨損益",
+    "text": "一筆交易最後實際賺或賠的金額，已依模型扣除相關費用與資金費率。"
+  },
+  "monthlyReturn": {
+    "title": "月度報酬",
+    "text": "每個 UTC 月份的資金變化百分比，可用來看策略是否只靠少數月份撐起績效。"
+  },
+  "positiveMonths": {
+    "title": "正報酬月份",
+    "text": "回測月份中有多少比例是賺錢的。比例高代表績效在時間上較平均，但仍不能保證未來。"
+  },
+  "crossAsset": {
+    "title": "跨幣正報酬",
+    "text": "選定的幣種中，有多少比例在該策略下是正報酬，用來看策略是否只靠單一幣種撐成績。"
+  },
+  "rsi": {
+    "title": "RSI",
+    "text": "0～100 的動能指標，常用來觀察短期是否偏熱或偏冷。高 RSI 不代表一定會跌，低 RSI 也不代表一定會漲。"
+  },
+  "ema": {
+    "title": "EMA 指數移動平均",
+    "text": "近期價格權重較高的平均線。EMA50 與 EMA200 的交叉常用來描述中長期趨勢變化。"
+  },
+  "macd": {
+    "title": "MACD",
+    "text": "利用兩條指數移動平均的差異觀察趨勢與動能；上穿訊號線稱黃金交叉，下穿稱死亡交叉。"
+  },
+  "bollinger": {
+    "title": "布林通道",
+    "text": "以移動平均線加上波動範圍形成上、下軌，用來觀察價格是否偏離近期常態區間。"
+  },
+  "adx": {
+    "title": "ADX",
+    "text": "衡量趨勢強度的指標，不直接告訴你漲或跌；數值高通常表示趨勢較明顯。"
+  },
+  "stochastic": {
+    "title": "Stochastic / KD",
+    "text": "比較目前收盤價在近期高低區間的位置，常用來觀察短期過熱、過冷與交叉。"
+  },
+  "supertrend": {
+    "title": "Supertrend",
+    "text": "用價格與 ATR 波動度估算趨勢方向的指標，通常顯示目前偏多或偏空。"
+  },
+  "keltner": {
+    "title": "Keltner 通道",
+    "text": "以 EMA 為中線、ATR 為寬度的波動通道，常用來觀察趨勢突破。"
+  },
+  "vwap": {
+    "title": "VWAP",
+    "text": "成交量加權平均價，可理解成當日市場的平均成交成本附近位置。"
+  },
+  "obv": {
+    "title": "OBV",
+    "text": "用成交量累積方向觀察買賣力量是否跟價格同方向。"
+  },
+  "cci": {
+    "title": "CCI",
+    "text": "衡量價格偏離其統計平均程度的動能指標，常用來觀察過熱或過冷。"
+  },
+  "mfi": {
+    "title": "MFI",
+    "text": "把價格與成交量一起考慮的 0～100 動能指標，概念上像加入成交量的 RSI。"
+  },
+  "donchian": {
+    "title": "Donchian 通道",
+    "text": "用最近一段時間最高價與最低價形成區間，常用來判斷突破。"
+  },
+  "atr": {
+    "title": "ATR",
+    "text": "衡量近期價格平均波動幅度的指標，只看波動大小，不看方向。"
+  },
+  "volume": {
+    "title": "成交量",
+    "text": "一段時間內成交的數量，用來觀察市場參與度與流動性。"
+  },
+  "candlestickPattern": {
+    "title": "K 線反轉型態",
+    "text": "用一根或數根 K 線的形狀描述可能的買賣力量變化，只是訊號條件，不代表一定反轉。"
+  },
+  "hammer": {
+    "title": "槌頭線",
+    "text": "常見於下跌後，下影線較長、實體較小，表示盤中曾大跌但買盤把價格拉回；仍需其他條件確認。"
+  },
+  "invertedHammer": {
+    "title": "倒槌頭",
+    "text": "常見於下跌後，上影線較長、實體較小，表示曾出現向上買盤嘗試，但不保證反轉。"
+  },
+  "hangingMan": {
+    "title": "上吊線",
+    "text": "常見於上漲後，形狀像槌頭線但位置不同，可能表示下方賣壓開始增加。"
+  },
+  "shootingStar": {
+    "title": "流星線",
+    "text": "常見於上漲後，上影線較長、收盤回落，可能表示高位賣壓出現。"
+  },
+  "bullishEngulfing": {
+    "title": "看漲吞噬",
+    "text": "後一根上漲 K 線的實體包住前一根下跌 K 線實體，常被視為買方力量轉強。"
+  },
+  "bearishEngulfing": {
+    "title": "看跌吞噬",
+    "text": "後一根下跌 K 線的實體包住前一根上漲 K 線實體，常被視為賣方力量轉強。"
+  },
+  "doji": {
+    "title": "十字星",
+    "text": "開盤與收盤很接近，代表多空力量暫時拉鋸，本身不等於反轉。"
+  },
+  "morningStar": {
+    "title": "晨星",
+    "text": "三根 K 線組合，常用來描述下跌後可能由空方轉向多方。"
+  },
+  "eveningStar": {
+    "title": "暮星",
+    "text": "三根 K 線組合，常用來描述上漲後可能由多方轉向空方。"
+  }
+};
+const beginnerGlossaryRules = [
+  ['profitFactor', /Profit Factor|獲利因子/], ['sortino', /Sortino/], ['calmar', /Calmar/], ['sharpe', /Sharpe/], ['cagr', /CAGR|年化報酬/],
+  ['maxDrawdown', /最大回撤|最慘跌幅|回撤 DRAWDOWN|回撤/], ['winRate', /勝率/], ['netReturn', /淨報酬|測試報酬|前段報酬/], ['netProfit', /淨利/],
+  ['expectancy', /每筆期望值/], ['avgWin', /平均盈利/], ['avgLoss', /平均虧損/], ['lossStreak', /最長連敗/], ['exposure', /市場曝險/], ['holding', /平均持倉/],
+  ['marginReturn', /保證金報酬/], ['pnl', /淨損益/], ['funding', /資金費率/], ['liquidation', /清算/], ['maintenance', /維持保證金/], ['leverage', /槓桿/],
+  ['slippage', /滑價|成交落差/], ['fee', /手續費/], ['allocation', /每次用多少資金|投入比例/], ['trailingStop', /移動停損/], ['stopLoss', /停損/], ['takeProfit', /停利/],
+  ['holdout', /樣本外|最後 30%|後段測試/], ['training', /訓練段|前 70%|前段/], ['walkForward', /滾動驗證|FOLD/], ['candidate', /候選/], ['overfit', /過度擬合/],
+  ['crossAsset', /跨幣正報酬|跨幣一致性/], ['positiveMonths', /正報酬月份/], ['monthlyReturn', /月度報酬/], ['benchmark', /買入持有|基準/], ['equity', /淨值|資金變化圖/],
+  ['long', /做多/], ['short', /做空/], ['futures', /永續合約/], ['spot', /現貨|SPOT/], ['pair', /交易對/], ['capital', /假設投入|投入資金/], ['and', /AND/], ['signal', /訊號/],
+  ['rsi', /RSI/], ['ema', /EMA/], ['macd', /MACD/], ['bollinger', /布林/], ['adx', /ADX/], ['stochastic', /Stochastic|KD/], ['supertrend', /Supertrend/],
+  ['keltner', /Keltner/], ['vwap', /VWAP/], ['obv', /OBV/], ['cci', /CCI/], ['mfi', /MFI/], ['donchian', /Donchian/], ['atr', /ATR/], ['volume', /成交量/],
+  ['hammer', /槌頭線/], ['invertedHammer', /倒槌頭/], ['hangingMan', /上吊線/], ['shootingStar', /流星線/], ['bullishEngulfing', /看漲吞噬/], ['bearishEngulfing', /看跌吞噬/],
+  ['doji', /十字星/], ['morningStar', /晨星/], ['eveningStar', /暮星/], ['candlestickPattern', /K 線反轉型態|K 線型態/], ['kline', /K 線/], ['backtest', /回測/]
+];
+function termHelpButton(key) {
+  const item = beginnerGlossary[key];
+  return item ? '<button type="button" class="term-help" data-term-help="' + key + '" title="' + esc(item.text) + '" aria-label="解釋：' + esc(item.title) + '">ⓘ</button>' : '';
+}
+function decorateBeginnerTerms(root = document) {
+  const selector = 'label, th, h3, h4, summary, .field-label, .stat-label, .search-metrics>span, .chart-legend>span, .detail-tabs button, .indicator-tag, .strategy-card .indicator-label, .fold-stats span, .candle-toggle-row label';
+  const nodes = [];
+  if (root instanceof Element && root.matches(selector)) nodes.push(root);
+  if (root.querySelectorAll) nodes.push(...root.querySelectorAll(selector));
+  for (const el of nodes) {
+    if (el.closest('#term-help-dialog') || el.querySelector(':scope > .term-help')) continue;
+    const text = el.textContent.replace(/\s+/g, ' ').trim();
+    const match = beginnerGlossaryRules.find(([, re]) => re.test(text));
+    if (!match) continue;
+    el.insertAdjacentHTML('beforeend', termHelpButton(match[0]));
+  }
+}
+function showTermHelp(key) {
+  const item = beginnerGlossary[key], dialog = $('#term-help-dialog');
+  if (!item || !dialog) return;
+  $('#term-help-title').textContent = item.title;
+  $('#term-help-text').textContent = item.text;
+  if (dialog.showModal) dialog.showModal(); else dialog.setAttribute('open', '');
+}
+function installBeginnerHelp() {
+  if (!$('#term-help-dialog')) document.body.insertAdjacentHTML('beforeend', '<dialog id="term-help-dialog" class="term-help-dialog"><div class="term-help-head"><div><span>新手名詞解釋</span><h3 id="term-help-title"></h3></div><button type="button" id="close-term-help" aria-label="關閉名詞解釋">×</button></div><p id="term-help-text"></p><small>這是回測介面的白話說明，不代表投資建議。</small></dialog>');
+  decorateBeginnerTerms(document);
+  const observer = new MutationObserver(records => {
+    for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) decorateBeginnerTerms(node);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
 const state = { source: 'demo', market: 'spot', symbols: ['BTCUSDT'], markets: [], result: null, range: 'test', tab: 'stats', running: false, marketPage: 0, tradePage: 0, tradeSide: '', view: 'workbench', worker: null, ws: null, generation: 0, quote: 'USDT', pickingMovers: false, candleSymbol: null, candleOffset: 0, candleWindow: 120, searchSort: 'stabilityScore' };
 const beginnerStrategyGuide = {
   trend: { name: '順著強勢趨勢走', intro: '只在方向很明顯時跟著趨勢進場。' },
@@ -615,6 +967,8 @@ async function applyTutorialPreset(preset) {
 }
 document.addEventListener('click', event => {
   const el = event.target.closest('button, a.brand'); if (!el) return;
+  if (el.dataset.termHelp) { event.preventDefault(); event.stopPropagation(); showTermHelp(el.dataset.termHelp); return; }
+  if (el.id === 'close-term-help') { const dialog = $('#term-help-dialog'); if (dialog?.close) dialog.close(); else dialog?.removeAttribute('open'); return; }
   if (el.dataset.view) view(el.dataset.view);
   if (el.dataset.tutorialPreset) applyTutorialPreset(el.dataset.tutorialPreset).catch(e => notice(e.message));
   if (el.matches('.brand')) view('workbench');
@@ -667,6 +1021,7 @@ document.addEventListener('input', event => { if (event.target.id === 'symbol-pi
 $('#config-form').addEventListener('input', markDirty);
 $('#config-form').addEventListener('submit', event => { event.preventDefault(); runBacktest(); });
 initContent();
+installBeginnerHelp();
 const initialView = location.hash.slice(1); if (['workbench', 'tutorial', 'markets', 'strategies', 'method'].includes(initialView)) view(initialView);
 else if (initialView.startsWith('tutorial-') && document.getElementById(initialView)) { view('tutorial'); document.getElementById(initialView).scrollIntoView(); }
 await refreshMarkets();
