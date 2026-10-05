@@ -342,10 +342,15 @@ function termHelpButton(key) {
   return item ? '<button type="button" class="term-help" data-term-help="' + key + '" title="' + esc(item.text) + '" aria-label="解釋：' + esc(item.title) + '">ⓘ</button>' : '';
 }
 function decorateBeginnerTerms(root = document) {
-  const selector = 'label, th, h3, h4, summary, .field-label, .stat-label, .search-metrics>span, .chart-legend>span, .detail-tabs button, .indicator-tag, .strategy-card .indicator-label, .fold-stats span, .candle-toggle-row label';
+  const selector = 'label, th, h3, h4, .field-label, .stat-label, .search-metrics>span, .chart-legend>span, .detail-tabs button, .indicator-tag, .strategy-card .indicator-label, .fold-stats span, .candle-toggle-row label';
   const nodes = [];
   if (root instanceof Element && root.matches(selector)) nodes.push(root);
   if (root.querySelectorAll) nodes.push(...root.querySelectorAll(selector));
+  for (const summary of root.querySelectorAll ? root.querySelectorAll('summary') : []) {
+    const text = summary.textContent.replace(/\s+/g, ' ').trim();
+    const match = beginnerGlossaryRules.find(([, re]) => re.test(text));
+    if (match && !summary.title) summary.title = beginnerGlossary[match[0]].text;
+  }
   for (const el of nodes) {
     if (el.closest('#term-help-dialog') || el.querySelector(':scope > .term-help')) continue;
     const text = el.textContent.replace(/\s+/g, ' ').trim();
