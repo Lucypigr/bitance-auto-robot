@@ -427,7 +427,7 @@ function renderSearchResults() {
   const winnerMeta = [
     ['winRate', '◎ 勝率最高', '在符合最低交易數的候選中，訓練段勝率最高。'],
     ['stability', '◇ 最穩定', '綜合 Sharpe、Sortino、獲利因子、回撤、交易數與跨幣一致性。'],
-    ['return', '↗ 獲利最多', '在符合最低交易數的候選中，兼顧回撤與跨幣一致性後報酬最高。'],
+    ['return', '↗ 獲利最多', '在符合最低交易數且無估計清算的候選中，訓練段淨報酬最高；回撤與跨幣一致性只列示，不參與此冠軍定義。'],
   ];
   const card = ([key, title, subtitle]) => {
     const row = result.winners?.[key];
@@ -438,8 +438,8 @@ function renderSearchResults() {
   const rows = [...(result.searchRanking ?? [])];
   const sort = state.searchSort;
   rows.sort((a,b) => {
-    if (sort === 'winRateScore') return b.trainScore.winRateScore - a.trainScore.winRateScore;
-    if (sort === 'returnScore') return b.trainScore.returnScore - a.trainScore.returnScore;
+    if (sort === 'winRateScore') return b.train.winRate - a.train.winRate || b.train.trades - a.train.trades;
+    if (sort === 'returnScore') return b.train.totalReturn - a.train.totalReturn || b.train.trades - a.train.trades;
     if (sort === 'drawdown') return b.test.maxDrawdown - a.test.maxDrawdown;
     if (sort === 'trades') return b.test.trades - a.test.trades;
     if (sort === 'consistency') return b.testScore.consistency - a.testScore.consistency;
