@@ -77,3 +77,18 @@
 #search-ranking-body .strategy-sub{max-width:430px;white-space:normal;line-height:1.45}
 @media(max-width:1020px){.search-winner-grid{grid-template-columns:1fr 1fr}.search-winner-card:last-child{grid-column:1/-1}}
 @media(max-width:760px){.search-winner-grid{grid-template-columns:1fr;padding:0 12px 14px}.search-winner-card:last-child{grid-column:auto}.search-ranking-head{align-items:stretch;flex-direction:column;padding:14px 12px 8px}.search-ranking-head label{width:100%}#combination-search-builder{grid-column:1/-1}.search-winner-card{padding:14px}}
+
+
+/* Beginner terminology help */
+.term-help{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:5px;padding:0;border:1px solid #60704f;border-radius:50%;background:#1b2418;color:#cfe89a;font:700 10px/1 Arial,sans-serif;vertical-align:middle;cursor:help;flex:0 0 auto}
+.term-help:hover,.term-help:focus-visible{border-color:#a9c66f;background:#26351f;color:#efffc9;outline:none;box-shadow:0 0 0 2px #a9c66f22}
+label>.term-help,th>.term-help,h3>.term-help,h4>.term-help,summary>.term-help,.stat-label>.term-help{position:relative;top:-1px}
+.term-help-dialog{width:min(520px,calc(100% - 28px));border:1px solid #46583b;border-radius:10px;background:#11181f;color:#d7e1ec;padding:0;box-shadow:0 24px 80px #000b}
+.term-help-dialog::backdrop{background:#05080dc2}
+.term-help-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px 20px 10px;border-bottom:1px solid #2d3a2d}
+.term-help-head span{display:block;color:#94ad6d;font-size:9px;letter-spacing:1.2px;margin-bottom:5px}
+.term-help-head h3{font-size:18px;margin:0;color:#edf5e4}
+.term-help-head button{border:0;background:transparent;color:#8d9aa9;font-size:26px;line-height:1;padding:0 3px}
+.term-help-dialog>p{font-size:12px;line-height:1.9;color:#b8c4d1;padding:15px 20px 8px;margin:0}
+.term-help-dialog>small{display:block;padding:0 20px 18px;color:#768397;font-size:9px;line-height:1.6}
+@media(max-width:760px){.term-help{width:18px;height:18px;font-size:11px;cursor:pointer}.term-help-dialog{width:calc(100% - 24px)}.term-help-dialog>p{font-size:13px}.term-help-head{padding:16px 17px 10px}.term-help-dialog>p,.term-help-dialog>small{padding-left:17px;padding-right:17px}}
