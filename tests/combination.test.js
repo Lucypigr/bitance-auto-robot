@@ -148,10 +148,18 @@ test('auto-search candidate generation is bounded, deterministic, side-aware and
   assert.ok(a.candidates.every(x => x.combination.conditions.length >= 1 && x.combination.conditions.length <= 3));
   const spot = generateSearchCandidates({ maxConditions: 2, maxCandidates: 30, side: 'auto' }, 'spot');
   assert.ok(spot.candidates.every(x => x.combination.side === 'long'));
-  const risk = generateSearchCandidates({ maxConditions: 2, maxCandidates: 40, side: 'long', riskSearch: true }, 'futures');
+  const fixedLeverage = generateSearchCandidates({ maxConditions: 2, maxCandidates: 30, side: 'long', leverage: 3 }, 'futures');
+  assert.ok(fixedLeverage.candidates.every(x => x.leverage === 3));
+  const leverage = generateSearchCandidates({ maxConditions: 2, maxCandidates: 40, side: 'long', leverageSearch: true, leverage: 2 }, 'futures');
+  assert.deepEqual([...new Set(leverage.candidates.map(x => x.leverage))].sort((a,b) => a-b), [1,2,3,5,10]);
+  assert.equal(leverage.leverageProfiles, 5);
+  const spotLeverage = generateSearchCandidates({ maxConditions: 2, maxCandidates: 30, side: 'auto', leverageSearch: true, leverage: 10 }, 'spot');
+  assert.ok(spotLeverage.candidates.every(x => x.leverage === 1));
+  const risk = generateSearchCandidates({ maxConditions: 2, maxCandidates: 40, side: 'long', riskSearch: true, leverageSearch: true }, 'futures');
   assert.equal(risk.candidates.length, 40);
   assert.ok(new Set(risk.candidates.map(x => x.stopLoss)).size > 1);
   assert.ok(new Set(risk.candidates.map(x => x.takeProfit)).size > 1);
+  assert.ok(new Set(risk.candidates.map(x => x.leverage)).size > 1);
 });
 test('auto-search minimum trade gate blocks tiny 100% win-rate samples', () => {
   const tiny = { stats: { trades: 2, liquidations: 0, winRate: 100, totalReturn: 20, maxDrawdown: -1, sharpe: 5, sortino: 6, profitFactor: null, noLosses: true }, assets: [{ trades: 2, totalReturn: 20 }] };
@@ -181,7 +189,7 @@ test('auto-search winners depend on training scores, not holdout performance', (
 test('auto-search runs bounded demo candidates with a true 70/30 holdout', () => {
   const startTime = Date.UTC(2025, 0, 1), endTime = Date.UTC(2025, 0, 10);
   const options = { ...settings, market: 'futures', interval: '15m', strategy: 'combination-search', startTime, endTime, capital: 1000, leverage: 2, allocation: .95, stopLoss: .02, takeProfit: .04,
-    search: { side: 'auto', maxConditions: 2, maxCandidates: 12, minTrades: 1, riskSearch: false } };
+    search: { side: 'auto', maxConditions: 2, maxCandidates: 12, minTrades: 1, riskSearch: false, leverageSearch: true, leverage: 2 } };
   const base = demoHistory('BTCUSDT', '15m', startTime, endTime, 'futures');
   base.timeframes = Object.fromEntries(['1h','4h','1d'].map(interval => [interval, demoHistory('BTCUSDT', interval, startTime, endTime, 'futures').candles]));
   const result = analyze([base], options);
@@ -189,6 +197,9 @@ test('auto-search runs bounded demo candidates with a true 70/30 holdout', () =>
   assert.equal(result.metadata.candidates, 12);
   assert.ok(result.metadata.split > result.metadata.start && result.metadata.split < result.metadata.end);
   assert.equal(result.searchRanking.length, 12);
+  assert.ok(new Set(result.searchRanking.map(x => x.leverage)).size > 1);
+  assert.equal(result.metadata.leverageProfiles, 5);
+  assert.ok([1,2,3,5,10].includes(result.options.leverage));
   assert.ok(result.test.equity.length < result.full.equity.length);
   assert.equal(result.options.interval, '15m');
 });
