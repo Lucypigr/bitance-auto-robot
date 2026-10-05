@@ -165,6 +165,7 @@ const searchLongTypes = ['emaGolden','macdGolden','rsiOversold','bbLower','hamme
 const searchShortTypes = ['emaDeath','macdDeath','rsiOverbought','bbUpper','hangingMan','shootingStar','bearishEngulfing','eveningStar','doji'];
 const searchRsiThresholds = { rsiOverbought: [70, 75, 80], rsiOversold: [30, 25, 20] };
 const searchRiskStops = [.01, .02, .03, .05], searchRiskTargets = [.01, .02, .03, .05, .10];
+const searchLeverages = [1, 2, 3, 5, 10];
 
 function atomKey(c) { return `${c.interval}:${c.type}:${c.threshold ?? ''}`; }
 function simpleHash(text) {
@@ -202,11 +203,16 @@ export function generateSearchCandidates(config = {}, market = 'futures') {
   const sides = config.side === 'long' ? ['long'] : config.side === 'short' ? ['short'] : market === 'spot' ? ['long'] : ['long', 'short'];
   if (market === 'spot' && sides.includes('short')) throw new Error('現貨自動搜尋不能包含做空');
   const riskSearch = !!config.riskSearch;
+  const leverageSearch = market === 'futures' && !!config.leverageSearch;
+  const fixedLeverage = market === 'spot' ? 1 : Number(config.leverage ?? 2);
+  if (!Number.isInteger(fixedLeverage) || fixedLeverage < 1 || fixedLeverage > 10) throw new Error('搜尋槓桿必須是 1 至 10 的整數');
+  const leverages = leverageSearch ? searchLeverages : [fixedLeverage];
   const fixedStop = Number(config.stopLoss ?? .02), fixedTarget = Number(config.takeProfit ?? .04);
   const risks = riskSearch
     ? searchRiskStops.flatMap(stopLoss => searchRiskTargets.map(takeProfit => ({ stopLoss, takeProfit })))
     : [{ stopLoss: fixedStop, takeProfit: fixedTarget }];
-  const perRiskBudget = Math.max(1, Math.ceil(maxCandidates / risks.length));
+  const profileCount = risks.length * leverages.length;
+  const baseBudget = Math.max(1, Math.min(maxCandidates, Math.ceil(maxCandidates / Math.min(profileCount, 5))));
   const grouped = Array.from({ length: maxConditions }, () => []);
   for (const side of sides) {
     const atoms = buildSearchAtoms(side);
@@ -220,26 +226,40 @@ export function generateSearchCandidates(config = {}, market = 'futures') {
   }
   for (const group of grouped) group.sort((a, b) => a.hash - b.hash || a.key.localeCompare(b.key));
   const chosen = [];
-  const quota = Math.max(1, Math.floor(perRiskBudget / grouped.length));
+  const quota = Math.max(1, Math.floor(baseBudget / grouped.length));
   for (const group of grouped) chosen.push(...group.slice(0, quota));
-  if (chosen.length < perRiskBudget) {
+  if (chosen.length < baseBudget) {
     const used = new Set(chosen.map(c => c.key));
     const rest = grouped.flat().filter(c => !used.has(c.key)).sort((a, b) => a.hash - b.hash || a.key.localeCompare(b.key));
-    chosen.push(...rest.slice(0, perRiskBudget - chosen.length));
+    chosen.push(...rest.slice(0, baseBudget - chosen.length));
   }
-  const candidates = [];
-  for (const base of chosen.slice(0, perRiskBudget)) {
-    for (const risk of risks) {
-      if (candidates.length >= maxCandidates) break;
-      candidates.push({
-        id: `search:${base.side}:${simpleHash(base.key + ':' + risk.stopLoss + ':' + risk.takeProfit).toString(36)}`,
-        combination: { side: base.side, conditions: base.conditions.map(c => ({ ...c })) },
-        stopLoss: risk.stopLoss, takeProfit: risk.takeProfit,
-      });
+  const pools = leverages.map(leverage => {
+    const pool = [];
+    for (const base of chosen.slice(0, baseBudget)) {
+      for (const risk of risks) {
+        const key = `${base.key}:${risk.stopLoss}:${risk.takeProfit}:${leverage}`;
+        pool.push({
+          id: `search:${base.side}:${simpleHash(key).toString(36)}`,
+          combination: { side: base.side, conditions: base.conditions.map(c => ({ ...c })) },
+          stopLoss: risk.stopLoss, takeProfit: risk.takeProfit, leverage,
+          hash: simpleHash(key),
+        });
+      }
     }
-    if (candidates.length >= maxCandidates) break;
+    return pool.sort((a, b) => a.hash - b.hash || a.id.localeCompare(b.id));
+  });
+  const candidates = [];
+  for (let cursor = 0; candidates.length < maxCandidates; cursor++) {
+    let added = false;
+    for (const pool of pools) {
+      if (cursor >= pool.length || candidates.length >= maxCandidates) continue;
+      const { hash, ...candidate } = pool[cursor];
+      candidates.push(candidate); added = true;
+    }
+    if (!added) break;
   }
-  return { candidates, totalSpace: grouped.reduce((s, g) => s + g.length, 0) * risks.length, riskProfiles: risks.length };
+  const conditionSpace = grouped.reduce((s, g) => s + g.length, 0);
+  return { candidates, totalSpace: conditionSpace * risks.length * leverages.length, riskProfiles: risks.length, leverageProfiles: leverages.length, fixedLeverage };
 }
 function positiveRatio(assets) {
   return assets.length ? assets.filter(a => a.trades > 0 && a.totalReturn > 0).length / assets.length : 0;
@@ -324,7 +344,7 @@ function searchPortfolioCompact(data, candidate, options, ranges, fromKey, toKey
     const range = ranges[assetIndex], start = range[fromKey], end = range[toKey];
     if (start < 0 || end <= start) throw new Error('自動搜尋跨幣種 K 線無法按時間對齊');
     return simulateCompact(d, { id: candidate.id }, {
-      ...options, capital: options.capital / data.length, stopLoss: candidate.stopLoss, takeProfit: candidate.takeProfit, trailingStop: 0,
+      ...options, capital: options.capital / data.length, leverage: candidate.leverage ?? options.leverage, stopLoss: candidate.stopLoss, takeProfit: candidate.takeProfit, trailingStop: 0,
     }, { start, end }, signalsByAsset[assetIndex]);
   });
   const equityValues = new Float64Array(parts[0].equityValues.length);
@@ -351,7 +371,7 @@ function searchPortfolio(data, candidate, options, range, masksByAsset) {
       if (match) signals[i] = candidate.combination.side === 'long' ? 1 : 2;
     }
     return simulate(d, { id: candidate.id }, {
-      ...options, capital: options.capital / data.length, stopLoss: candidate.stopLoss, takeProfit: candidate.takeProfit, trailingStop: 0,
+      ...options, capital: options.capital / data.length, leverage: candidate.leverage ?? options.leverage, stopLoss: candidate.stopLoss, takeProfit: candidate.takeProfit, trailingStop: 0,
     }, { start, end }, signals);
   });
   const equity = parts[0].equity.map((p, i) => ({ time: p.time, value: parts.reduce((s, r) => s + r.equity[i].value, 0) }));
@@ -371,6 +391,8 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
     minTrades: Number(options.search?.minTrades ?? 20),
     side: options.search?.side ?? 'auto',
     riskSearch: !!options.search?.riskSearch,
+    leverageSearch: options.market === 'futures' && !!options.search?.leverageSearch,
+    leverage: options.market === 'spot' ? 1 : Number(options.search?.leverage ?? options.leverage),
     stopLoss: options.stopLoss, takeProfit: options.takeProfit,
   };
   if (!Number.isInteger(config.minTrades) || config.minTrades < 1 || config.minTrades > 500) throw new Error('最低交易數必須介於 1 與 500');
@@ -431,7 +453,7 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
     const trainScore = scoreSearchResult(trainReport, config.minTrades), testScore = scoreSearchResult(testReport, config.minTrades);
     onProgress(8 + Math.round((index + 1) / generated.candidates.length * 82), `自動搜尋 ${index + 1} / ${generated.candidates.length}`);
     return {
-      id: candidate.id, combination: candidate.combination, stopLoss: candidate.stopLoss, takeProfit: candidate.takeProfit,
+      id: candidate.id, combination: candidate.combination, stopLoss: candidate.stopLoss, takeProfit: candidate.takeProfit, leverage: candidate.leverage,
       description: candidateDescription(candidate), train: trainReport.stats, test: testReport.stats,
       trainScore, testScore, trainAssetsPositive: trainScore.consistency, testAssetsPositive: testScore.consistency,
     };
@@ -439,7 +461,7 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
   const winners = pickSearchWinners(ranking, config.minTrades);
   const display = winners.stability ?? ranking.slice().sort((a, b) => b.train.trades - a.train.trades || b.train.totalReturn - a.train.totalReturn)[0];
   if (!display) throw new Error('沒有可用的候選策略');
-  const displayCandidate = { id: display.id, combination: display.combination, stopLoss: display.stopLoss, takeProfit: display.takeProfit };
+  const displayCandidate = { id: display.id, combination: display.combination, stopLoss: display.stopLoss, takeProfit: display.takeProfit, leverage: display.leverage };
   const full = searchPortfolio(data, displayCandidate, options, { startTime: commonStart, endTime: endExclusive }, masksByAsset);
   const test = searchPortfolio(data, displayCandidate, options, { startTime: splitTime, endTime: endExclusive }, masksByAsset);
   const benchmark = (fromTime, toTime) => {
@@ -459,22 +481,23 @@ export function analyzeCombinationSearch(raw, options, onProgress = () => {}) {
   full.benchmark = benchmark(commonStart, endExclusive); test.benchmark = benchmark(splitTime, endExclusive);
   const winnerSummary = {};
   for (const [kind, row] of Object.entries(winners)) if (row) winnerSummary[kind] = { ...row, explanation: explainSearchCandidate(row, kind, config.minTrades) };
-  const best = { id: 'combination-search', name: '條件組合自動搜尋', params: {}, indicators: '跨週期 AND 自動搜尋', combination: display.combination };
-  const resultOptions = { ...options, combination: display.combination, stopLoss: display.stopLoss, takeProfit: display.takeProfit };
+  const best = { id: 'combination-search', name: '條件組合自動搜尋', params: { leverage: display.leverage }, indicators: '跨週期 AND 自動搜尋', combination: display.combination };
+  const resultOptions = { ...options, combination: display.combination, leverage: display.leverage, stopLoss: display.stopLoss, takeProfit: display.takeProfit };
   return {
     options: resultOptions, best, full, test, folds: [], snapshot: {}, searchRanking: ranking, winners: winnerSummary,
     ranking: ranking.slice().sort((a, b) => b.trainScore.stabilityScore - a.trainScore.stabilityScore).slice(0, 50).map(r => ({
-      strategy: { id: 'combination-search', name: r.description, combination: r.combination }, train: r.train, test: r.test, score: r.trainScore.stabilityScore,
+      strategy: { id: 'combination-search', name: r.description, combination: r.combination, params: { leverage: r.leverage } }, train: r.train, test: r.test, score: r.trainScore.stabilityScore,
     })),
     metadata: {
       mode: 'combination-search', generatedAt: new Date().toISOString(), sources: raw.map(d => ({ symbol: d.symbol, source: d.source, fetchedAt: d.fetchedAt })),
       symbols: raw.map(d => d.symbol), start: commonStart, end: commonEnd, split: splitTime,
-      bars, candidates: generated.candidates.length, candidateSpace: generated.totalSpace, riskProfiles: generated.riskProfiles,
+      bars, candidates: generated.candidates.length, candidateSpace: generated.totalSpace, riskProfiles: generated.riskProfiles, leverageProfiles: generated.leverageProfiles,
       minTrades: config.minTrades, rankingEngine: 'compact-typed-array', commonPeriodTrimmed: commonStart > options.startTime + intervals['15m'],
       warnings: [
         `搜尋只用前 70% 資料選候選，最後 30% 僅作未見樣本驗證；共實測 ${generated.candidates.length} 組，理論搜尋空間約 ${generated.totalSpace.toLocaleString()} 組。`,
         `冠軍必須在訓練段至少 ${config.minTrades} 筆且無估計清算；若沒有候選達標，冠軍卡會留空。`,
         '自動搜尋固定使用 15m 作成交執行層；1h／4h／1d 條件只有原生 K 線真正收盤後才可使用。',
+        ...(config.leverageSearch ? [`槓桿已納入候選維度（${searchLeverages.join('× / ')}×）；損益、手續費、滑價、資金費率與估計清算都依候選槓桿重新計算。`] : [`本次候選固定使用 ${config.leverage}× 槓桿。`]),
         '大量排列組合仍會增加過度擬合風險；樣本外結果不能再拿來反覆調參後仍稱為樣本外。',
         '目前交易對清單有倖存者偏誤，歷史獲利不保證未來。',
       ],
