@@ -468,7 +468,7 @@ function renderResults() {
   $('#search-results')?.classList.toggle('hidden', !search);
   $('.ranking-panel').classList.toggle('hidden', combo || search);
   $('#range-selector').classList.toggle('hidden', combo);
-  $('[data-tab="walk"], [data-tab="indicators"]').forEach(el => el.classList.toggle('hidden', combo || search));
+  document.querySelectorAll('[data-tab="walk"], [data-tab="indicators"]').forEach(el => el.classList.toggle('hidden', combo || search));
   if (search) { if (['walk', 'indicators'].includes(state.tab)) state.tab = 'stats'; renderSearchResults(); }
   if (combo) {
     if (['walk', 'indicators'].includes(state.tab)) state.tab = 'stats';
