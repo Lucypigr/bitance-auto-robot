@@ -133,6 +133,10 @@ test('auto-search renders three champion goals, sortable candidates, and applies
   await expect(page.locator('#progress')).toContainText('已完成', { timeout: 30000 });
   await page.locator('#strategy').selectOption('combination-search');
   await expect(page.locator('#combination-search-builder')).toBeVisible();
+  await page.locator('[data-market="futures"]').click();
+  await expect(page.locator('#search-leverage-controls')).toBeVisible();
+  await page.locator('#search-leverage').selectOption('5');
+  await page.locator('#search-leverage-search').check();
   await page.locator('#search-max-conditions').selectOption('2');
   await page.locator('#search-max-candidates').selectOption('30');
   await page.locator('#search-min-trades').fill('1');
@@ -154,10 +158,16 @@ test('auto-search renders three champion goals, sortable candidates, and applies
   expect(reportData.metadata.candidates).toBe(30);
   expect(reportData.metadata.split).toBeGreaterThan(reportData.metadata.start);
   expect(reportData.searchRanking).toHaveLength(30);
+  expect(reportData.metadata.leverageProfiles).toBe(5);
+  expect(new Set(reportData.searchRanking.map(x => x.leverage)).size).toBeGreaterThan(1);
+  await expect(page.locator('#search-results')).toContainText('× 合約');
   const apply = page.locator('[data-apply-search]').first();
   await expect(apply).toBeVisible();
+  const candidateId = await apply.getAttribute('data-apply-search');
+  const expectedLeverage = reportData.searchRanking.find(x => x.id === candidateId).leverage;
   await apply.click();
   await expect(page.locator('#strategy')).toHaveValue('combination');
+  await expect(page.locator('#leverage')).toHaveValue(String(expectedLeverage));
   await expect(page.locator('#combination-builder')).toBeVisible();
   expect(await page.locator('[data-combo-type]:checked').count()).toBeGreaterThan(0);
 });
