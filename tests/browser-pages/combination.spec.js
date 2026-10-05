@@ -12,6 +12,27 @@ async function report(page) {
   const download = await downloadPromise;
   return JSON.parse(await readFile(await download.path(), 'utf8'));
 }
+test('beginner terminology help explains investment terms without changing controls', async ({ page }) => {
+  await page.goto('./');
+  await expect(page.locator('#progress')).toContainText('已完成', { timeout: 30000 });
+  expect(await page.locator('.term-help').count()).toBeGreaterThan(20);
+  const intervalBefore = await page.locator('#interval').inputValue();
+  const klineHelp = page.locator('label').filter({ hasText: 'K 線時間' }).locator('.term-help').first();
+  await expect(klineHelp).toBeVisible();
+  await klineHelp.click();
+  await expect(page.locator('#term-help-dialog')).toBeVisible();
+  await expect(page.locator('#term-help-title')).toContainText('K 線');
+  await expect(page.locator('#term-help-text')).toContainText('開盤');
+  await expect(page.locator('#interval')).toHaveValue(intervalBefore);
+  await page.locator('#close-term-help').click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#strategy').selectOption('combination-search');
+  await page.locator('[data-market="futures"]').click();
+  const leverageHelp = page.locator('label').filter({ hasText: '固定槓桿' }).locator('.term-help').first();
+  await leverageHelp.click();
+  await expect(page.locator('#term-help-title')).toContainText('槓桿');
+  await expect(page.locator('#term-help-text')).toContainText('保證金');
+});
 test('multi-coin AND combination, full-period metrics, save/load and offline report', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await ready(page);
