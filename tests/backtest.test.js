@@ -91,7 +91,7 @@ test('short samples do not claim reliable annualization or undefined ratios', ()
 test('compact simulation used by auto-search matches full execution statistics', () => {
   const c = bars([100,100,110,105,95,108,112,104]);
   c[3].low = 90; c[4].high = 115;
-  const signals = new Uint8Array(c.length); signals[0] = 1; signals[4] = 1;
+  const signals = new Uint8Array(c.length); signals[1] = 1; signals[4] = 1;
   const opts = { ...options, fee: .001, slippage: .0005, stopLoss: .08, takeProfit: .1 };
   const range = { start: 1, end: c.length };
   const full = simulate({ symbol:'BTCUSDT', candles:c, funding:[] }, { id:'compact-check' }, opts, range, signals);
