@@ -70,13 +70,65 @@ export function metrics(equity, trades, capital, interval) {
   };
 }
 
-// Cash is settled account equity, with open PnL marked separately (also for unlevered spot).
-export function simulate(dataset, strategy, options, range, suppliedSignals) {
+export function metricsValues(candles, start, values, trades, capital, interval) {
+  let peak = capital, drawdown = 0, longestDD = 0, ddStart = null;
+  const daily = new Map();
+  for (let i = 0; i < values.length; i++) {
+    const time = candles[start + i].time, value = values[i];
+    peak = Math.max(peak, value);
+    const pointDrawdown = peak ? (value / peak - 1) * 100 : 0;
+    drawdown = Math.min(drawdown, pointDrawdown);
+    if (value < peak) { if (ddStart === null) ddStart = time; longestDD = Math.max(longestDD, (time - ddStart) / DAY); } else ddStart = null;
+    daily.set(new Date(time).toISOString().slice(0, 10), value);
+  }
+  let prior = capital;
+  const returns = [...daily.values()].map(v => { const r = prior > 0 ? v / prior - 1 : 0; prior = v; return r; });
+  const mean = returns.reduce((a, b) => a + b, 0) / (returns.length || 1);
+  const variance = returns.length > 1 ? returns.reduce((a, r) => a + (r - mean) ** 2, 0) / (returns.length - 1) : 0;
+  const downside = Math.sqrt(returns.reduce((a, r) => a + Math.min(0, r) ** 2, 0) / (returns.length || 1));
+  const endValue = values.length ? values[values.length - 1] : capital;
+  const years = values.length ? (candles[start + values.length - 1].time - candles[start].time + interval) / (365 * DAY) : 0;
+  const cagr = years >= 30 / 365 ? (Math.pow(Math.max(0, endValue / capital), 1 / years) - 1) * 100 : null;
+  const wins = trades.filter(t => t.pnl > 0), losses = trades.filter(t => t.pnl < 0);
+  const grossWin = wins.reduce((s, t) => s + t.pnl, 0), grossLoss = -losses.reduce((s, t) => s + t.pnl, 0);
+  let streak = 0, maxLossStreak = 0;
+  for (const t of trades) { streak = t.pnl < 0 ? streak + 1 : 0; maxLossStreak = Math.max(maxLossStreak, streak); }
+  const monthly = [];
+  let monthStart = capital, monthKey = '';
+  for (const [date, v] of daily) {
+    const key = date.slice(0, 7);
+    if (key !== monthKey) { monthKey = key; monthly.push({ month: key, return: 0, value: v }); }
+    const m = monthly.at(-1); m.return = monthStart ? (v / monthStart - 1) * 100 : 0; m.value = v;
+  }
+  monthStart = capital;
+  for (const m of monthly) { m.return = monthStart ? (m.value / monthStart - 1) * 100 : 0; monthStart = m.value; }
+  return {
+    endValue, netProfit: endValue - capital, totalReturn: (endValue / capital - 1) * 100,
+    cagr: Number.isFinite(cagr) ? cagr : null, maxDrawdown: drawdown, drawdownDays: longestDD,
+    sharpe: returns.length >= 7 && variance > 1e-16 ? mean / Math.sqrt(variance) * Math.sqrt(365) : null,
+    sortino: returns.length >= 7 && downside > 1e-12 ? mean / downside * Math.sqrt(365) : null,
+    calmar: cagr !== null && drawdown < 0 ? cagr / -drawdown : null,
+    trades: trades.length, wins: wins.length, losses: losses.length,
+    winRate: trades.length ? wins.length / trades.length * 100 : 0,
+    profitFactor: grossLoss > 0 ? grossWin / grossLoss : null,
+    noLosses: trades.length > 0 && grossLoss === 0,
+    expectancy: trades.length ? trades.reduce((s, t) => s + t.pnl, 0) / trades.length : 0,
+    avgWin: wins.length ? grossWin / wins.length : 0, avgLoss: losses.length ? -grossLoss / losses.length : 0,
+    avgHoldingHours: trades.length ? trades.reduce((s, t) => s + (t.exitTime - t.entryTime) / 3600000, 0) / trades.length : 0,
+    fees: trades.reduce((s, t) => s + t.fees, 0), funding: trades.reduce((s, t) => s + t.funding, 0),
+    slippageCost: trades.reduce((s, t) => s + t.slippageCost, 0),
+    liquidations: trades.filter(t => t.reason === 'liquidation').length,
+    maxLossStreak, monthly, days: years * 365,
+  };
+}
+
+
+function simulateCore(dataset, strategy, options, range, suppliedSignals, compact) {
   const { candles, indicators = computeIndicators(candles), funding = [], symbol } = dataset;
-  const { start = 200, end = candles.length } = range ?? {};
+  const { start = 200, end = candles.length, signalStart } = range ?? {};
   const { capital, fee, slippage, allocation, leverage, stopLoss, takeProfit, trailingStop, maintenance, market, interval } = options;
   let cash = capital, pos = null, exposed = 0, fundingIndex = 0;
-  const equity = [], trades = [];
+  const equity = compact ? new Float64Array(Math.max(0, end - start)) : [], trades = [];
   while (fundingIndex < funding.length && funding[fundingIndex].time < candles[start].time) fundingIndex++;
   const liqPrice = () => {
     if (!pos || market !== 'futures') return null;
@@ -90,19 +142,24 @@ export function simulate(dataset, strategy, options, range, suppliedSignals) {
     const exit = rawPrice * (1 - p.direction * slippage);
     const exitFee = exit * p.qty * fee;
     let realized = p.direction * p.qty * (exit - p.entry) - exitFee;
-    // Conservative isolated liquidation: remaining collateral is forfeited, no extra cross-wallet loss.
     if (reason === 'liquidation') realized = -Math.max(0, p.margin - p.entryFee - p.funding);
     cash = Math.max(0, cash + realized);
     const pnl = realized - p.entryFee - p.funding;
-    trades.push({ symbol, side: p.direction === 1 ? 'long' : 'short', entryTime: p.time, exitTime: time,
+    const compactTrade = {
+      entryTime: p.time, exitTime: time, pnl,
+      fees: p.entryFee + (reason === 'liquidation' ? 0 : exitFee),
+      funding: p.funding, slippageCost: p.entrySlip + (reason === 'liquidation' ? 0 : Math.abs(exit - rawPrice) * p.qty), reason,
+    };
+    trades.push(compact ? compactTrade : {
+      symbol, side: p.direction === 1 ? 'long' : 'short', entryTime: p.time, exitTime: time,
       entry: p.entry, exit: reason === 'liquidation' ? rawPrice : exit, qty: p.qty,
-      pnl, return: pnl / p.margin * 100, fees: p.entryFee + (reason === 'liquidation' ? 0 : exitFee),
-      funding: p.funding, slippageCost: p.entrySlip + (reason === 'liquidation' ? 0 : Math.abs(exit - rawPrice) * p.qty), reason });
+      pnl, return: pnl / p.margin * 100, fees: compactTrade.fees,
+      funding: p.funding, slippageCost: compactTrade.slippageCost, reason,
+    });
     pos = null;
   }
   for (let i = start; i < end; i++) {
     const c = candles[i];
-    // Funding belongs to the position carried into the funding timestamp. Sub-hour offset is assigned to bar open.
     while (fundingIndex < funding.length && funding[fundingIndex].time < c.time + intervals[interval]) {
       const f = funding[fundingIndex++];
       if (pos && f.time >= c.time) {
@@ -110,7 +167,10 @@ export function simulate(dataset, strategy, options, range, suppliedSignals) {
         cash -= payment; pos.funding += payment;
       }
     }
-    const rawSignal = suppliedSignals ? suppliedSignals[i - 1] : signalAt(strategy, indicators, i - 1);
+    const signalIndex = i - 1;
+    const rawSignal = suppliedSignals
+      ? (Number.isInteger(signalStart) && signalIndex < signalStart ? 0 : suppliedSignals[signalIndex])
+      : signalAt(strategy, indicators, signalIndex);
     const signal = typeof rawSignal === 'number'
       ? { long: !!(rawSignal & 1), short: !!(rawSignal & 2), exitLong: !!(rawSignal & 4), exitShort: !!(rawSignal & 8) }
       : rawSignal;
@@ -142,23 +202,33 @@ export function simulate(dataset, strategy, options, range, suppliedSignals) {
       const hitLiq = lp !== null && (pos.direction === 1 ? (c.markLow ?? c.low) <= lp : (c.markHigh ?? c.high) >= lp);
       const hitStop = pos.stop && (pos.direction === 1 ? c.low <= pos.stop : c.high >= pos.stop);
       const hitTarget = pos.target && (pos.direction === 1 ? c.high >= pos.target : c.low <= pos.target);
-      // OHLC does not encode event order: liquidation first, then stop, then target.
       if (hitLiq) closePosition(lp, c.time + intervals[interval] - 1, 'liquidation');
       else if (hitStop) closePosition(pos.stop, c.time + intervals[interval] - 1, 'stop');
       else if (hitTarget) closePosition(pos.target, c.time + intervals[interval] - 1, 'target');
       else if (trailingStop) {
-        // Only completed closes move the trailing stop; it becomes active on the following bar.
         const nextStop = c.close * (1 - pos.direction * trailingStop);
         pos.stop = pos.stop === null ? nextStop : pos.direction === 1 ? Math.max(pos.stop, nextStop) : Math.min(pos.stop, nextStop);
       }
     }
     if (i === end - 1 && pos) closePosition(c.close, c.time + intervals[interval] - 1, 'end');
     const marked = market === 'futures' ? (c.markClose ?? c.close) : c.close;
-    equity.push({ time: c.time, value: Math.max(0, cash + (pos ? pos.direction * pos.qty * (marked - pos.entry) : 0)) });
+    const value = Math.max(0, cash + (pos ? pos.direction * pos.qty * (marked - pos.entry) : 0));
+    if (compact) equity[i - start] = value;
+    else equity.push({ time: c.time, value });
   }
-  const stats = metrics(equity, trades, capital, intervals[interval]);
+  const stats = compact
+    ? metricsValues(candles, start, equity, trades, capital, intervals[interval])
+    : metrics(equity, trades, capital, intervals[interval]);
   stats.exposure = exposed / (end - start) * 100;
-  return { equity, trades, stats };
+  return compact ? { equityValues: equity, trades, stats } : { equity, trades, stats };
+}
+
+// Cash is settled account equity, with open PnL marked separately (also for unlevered spot).
+export function simulate(dataset, strategy, options, range, suppliedSignals) {
+  return simulateCore(dataset, strategy, options, range, suppliedSignals, false);
+}
+export function simulateCompact(dataset, strategy, options, range, suppliedSignals) {
+  return simulateCore(dataset, strategy, options, { ...range, signalStart: range?.start }, suppliedSignals, true);
 }
 function portfolio(datasets, strategy, options, range, signalCache) {
   const parts = datasets.map((d, i) => simulate(d, strategy, { ...options, capital: options.capital / datasets.length }, range, signalCache?.[i]));
